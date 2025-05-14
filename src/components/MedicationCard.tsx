@@ -68,21 +68,20 @@ const MedicationCard: React.FC<MedicationCardProps> = ({ medication, onEditClick
 
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300">
-      {/* ... (Encabezado de la card) ... */}
       <div className="p-5 border-b border-gray-100">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-800">{medication.name}</h3>
-          {/* ... (span de status) ... */}
+          <span className={`px-2 py-1 text-xs rounded-full ${statusColor}`}>
+            {statusText}
+          </span>
         </div>
       </div>
 
-
       <div className="p-5 space-y-3">
-        {/* Active Ingredient */}
         {activeIngredient ? (
           <div className="flex items-center text-sm text-gray-600">
             <Info size={16} className="mr-2 text-gray-400 flex-shrink-0" />
-            <span>{activeIngredient}</span>
+            <span>{activeIngredient}</span> {/* Usa la variable activeIngredient */}
           </div>
         ) : (
           <div className="flex items-center text-sm text-gray-400">
@@ -90,13 +89,16 @@ const MedicationCard: React.FC<MedicationCardProps> = ({ medication, onEditClick
             <span>No active ingredient listed</span>
           </div>
         )}
-        {/* Expiration Date */}
+
         <div className="flex items-center text-sm text-gray-600">
           <Calendar size={16} className="mr-2 text-gray-400 flex-shrink-0" />
-          <span>Expires: {displayExpirationDate}</span>
-           {/* ... (info adicional de expiración) ... */}
+          <span>
+            Expires: {displayExpirationDate}
+            {daysUntilExpiration !== null && !isExpired && isExpiringSoon && ` (${daysUntilExpiration} days left)`}
+            {isExpired && ' (Expired)'}
+          </span>
         </div>
-        {/* Description */}
+
         {medication.description && (
           <p className="text-sm text-gray-600 mt-2 break-words">
             {medication.description}
@@ -104,18 +106,12 @@ const MedicationCard: React.FC<MedicationCardProps> = ({ medication, onEditClick
         )}
       </div>
 
-      <div className="bg-gray-50 px-5 py-3 flex justify-between items-center">
-        <Link
-          to={`/medications/${medication.id}`} // Navega a la página de detalles
-          className="flex items-center text-indigo-600 text-sm font-medium hover:text-indigo-800 transition-colors duration-200"
-        >
-          <Eye size={16} className="mr-1" /> View Details
-        </Link>
-        <button
-          onClick={() => onEditClick(medication)} // Llama a la función pasada por props
-          className="flex items-center text-gray-600 text-sm font-medium hover:text-gray-800 transition-colors duration-200"
-        >
-          <Edit3 size={16} className="mr-1" /> Edit
+      <div className="bg-gray-50 px-5 py-3 flex justify-between">
+        <button className="text-indigo-600 text-sm font-medium hover:text-indigo-800 transition-colors duration-200">
+          View Details
+        </button>
+        <button className="text-gray-600 text-sm font-medium hover:text-gray-800 transition-colors duration-200">
+          Edit
         </button>
       </div>
     </div>
