@@ -3,15 +3,16 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAppContext } from '../contexts/AppContext';
 import { Medication } from '../types';
-import { ArrowLeft, Edit3, Trash2, Pill, Info, Calendar as CalendarIcon, FileText } from 'lucide-react';
+import { ArrowLeft, Edit3, Trash2, Pill, Info, Calendar as CalendarIcon, FileText, X } from 'lucide-react'; // Asegúrate de tener X
 import toast from 'react-hot-toast';
 
 const MedicationDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getMedicationById, updateMedication, deleteMedication } = useAppContext(); // Asegúrate de tener estas en AppContext
+  // Obtén 'medications' (la lista completa) además de las funciones
+  const { medications, getMedicationById, updateMedication, deleteMedication } = useAppContext();
 
-  const [medication, setMedication] = useState<Medication | null | undefined>(null); // null para carga, undefined si no se encuentra
+  const [medication, setMedication] = useState<Medication | null | undefined>(null);
   const [isEditing, setIsEditing] = useState(false);
 
   // Estados para el formulario de edición
@@ -22,44 +23,52 @@ const MedicationDetails: React.FC = () => {
 
   useEffect(() => {
     if (id) {
-      const med = getMedicationById(id); // Asume que esto viene de AppContext y puede ser snake_case
+      const med = getMedicationById(id); // getMedicationById usa el array 'medications' del contexto
       if (med) {
-        // Convertir a camelCase si es necesario o asegurarse que getMedicationById ya lo haga
-        // Para este ejemplo, asumimos que getMedicationById devuelve un objeto Medication (camelCase)
-        // o que la lógica dentro de getMedicationById maneja la conversión si es necesario.
-        // Si 'med' viene con snake_case de getMedicationById, necesitas convertirlo aquí.
-        // Por coherencia con la solución anterior de MedicationCard, vamos a asumir que puede venir snake_case
-        // y lo manejamos.
-        const medicationData: Medication = {
-            id: med.id,
-            name: med.name,
-            activeIngredient: (med as any).active_ingredient || med.activeIngredient,
-            expirationDate: (med as any).expiration_date || med.expirationDate,
-            description: med.description
-        };
+        // Asumimos que 'med' (del estado global 'medications') ya está en camelCase
+        // porque el medicationService debería estar devolviendo camelCase.
         setMedication(med);
-      setEditName(med.name);
-      setEditActiveIngredient(med.activeIngredient);
-      setEditExpirationDate(med.expirationDate);
-      setEditDescription(med.description || '');
+        setEditName(med.name);
+        setEditActiveIngredient(med.activeIngredient);
+        setEditExpirationDate(med.expirationDate); // Formato YYYY-MM-DD
+        setEditDescription(med.description || '');
       } else {
         setMedication(undefined); // No encontrado
+        // Opcional: si no se encuentra, podrías intentar cargarlo directamente del servicio
+        // const fetchMed = async () => {
+        //   try {
+        //     const fetchedMed = await medicationService.getById(id); // Necesitarías importar medicationService
+        //     if (fetchedMed) {
+        //       setMedication(fetchedMed);
+        //       // ... setear campos de edición ...
+        //     } else {
+        //       setMedication(undefined);
+        //     }
+        //   } catch (err) {
+        //     setMedication(undefined);
+        //   }
+        // };
+        // fetchMed();
       }
     }
-}, [id, getMedicationById, medications]);
+  // La dependencia clave aquí es 'medications' y 'id'.
+  // Si 'getMedicationById' es una función estable (no cambia entre renders, lo cual es común),
+  // no es estrictamente necesaria como dependencia si su lógica interna no cambia.
+  // Pero 'medications' (el array) sí puede cambiar.
+  }, [id, medications, getMedicationById]); // <--- AÑADE 'medications' AL ARRAY DE DEPENDENCIAS
 
+  // ... (resto de las funciones: handleOpenEditModal, handleSaveEdit, handleDelete) ...
+  // (Las funciones handleSaveEdit y handleDelete que te proporcioné antes deberían funcionar)
 
- const handleOpenEditModal = () => {
-  if (medication) {
-    // Asegúrate de que los datos que cargas en el formulario de edición
-    // sean los correctos (camelCase si tu estado medication es camelCase)
-    setEditName(medication.name);
-    setEditActiveIngredient(medication.activeIngredient); // Asume camelCase
-    setEditExpirationDate(medication.expirationDate); // Asume camelCase y formato YYYY-MM-DD
-    setEditDescription(medication.description || '');
-    setIsEditing(true);
-  }
-};
+  const handleOpenEditModal = () => {
+    if (medication) {
+      setEditName(medication.name);
+      setEditActiveIngredient(medication.activeIngredient);
+      setEditExpirationDate(medication.expirationDate);
+      setEditDescription(medication.description || '');
+      setIsEditing(true);
+    }
+  };
 
   const handleSaveEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -74,22 +83,26 @@ const MedicationDetails: React.FC = () => {
         return;
     }
 
-    const updatedMedData: Partial<Medication> = { // Esto está bien, Partial<Medication> es camelCase
-    name: editName,
-    activeIngredient: editActiveIngredient,
-    expirationDate: editExpirationDate,
-    description: editDescription,
-  };
+    const updatedMedData: Partial<Medication> = {
+      name: editName,
+      activeIngredient: editActiveIngredient,
+      expirationDate: editExpirationDate,
+      description: editDescription,
+    };
 
     try {
       await updateMedication(id, updatedMedData);
-      toast.success('Medication updated successfully!');
+      // El toast de éxito se maneja en AppContext o aquí si prefieres
       setIsEditing(false);
-      // Actualizar el estado local del medicamento si es necesario, o confiar en que AppContext lo haga y se propague
+      // Para actualizar la vista de detalles inmediatamente con los datos editados:
+      // getMedicationById se re-ejecutará si 'medications' (del AppContext) cambia,
+      // lo cual debería suceder después de un updateMedication exitoso.
+      // O puedes forzar la actualización del estado local 'medication':
       setMedication(prev => prev ? { ...prev, ...updatedMedData } : null);
+      toast.success('Medication updated successfully!'); // Toast aquí para feedback inmediato
     } catch (error) {
       console.error("Failed to update medication:", error);
-      // El toast de error ya se maneja en AppContext
+      // El toast de error ya debería manejarse en AppContext
     }
   };
 
@@ -98,11 +111,12 @@ const MedicationDetails: React.FC = () => {
     if (window.confirm(`Are you sure you want to delete ${medication.name}?`)) {
       try {
         await deleteMedication(id);
+        // El toast de éxito se maneja en AppContext o aquí
         toast.success('Medication deleted successfully!');
-        navigate('/medications'); // Redirigir después de eliminar
+        navigate('/medications');
       } catch (error) {
         console.error("Failed to delete medication:", error);
-        // El toast de error ya se maneja en AppContext
+        // El toast de error ya debería manejarse en AppContext
       }
     }
   };
@@ -122,10 +136,10 @@ const MedicationDetails: React.FC = () => {
     );
   }
 
-  // Lógica para mostrar la fecha de expiración formateada (similar a MedicationCard)
+  // ... (lógica para displayExpirationDate como en la respuesta anterior) ...
   let displayExpirationDate = 'N/A';
   if (medication.expirationDate) {
-    const expDate = new Date(medication.expirationDate);
+    const expDate = new Date(medication.expirationDate); // Asume que medication.expirationDate es YYYY-MM-DD
     if (!isNaN(expDate.getTime())) {
         const year = expDate.getUTCFullYear();
         const month = expDate.getUTCMonth();
@@ -139,9 +153,13 @@ const MedicationDetails: React.FC = () => {
     }
   }
 
-
   return (
     <div className="space-y-6 p-4 md:p-6">
+      {/* ... (resto del JSX para mostrar detalles y el modal de edición, como en la respuesta anterior) ... */}
+      {/* Asegúrate de que el modal de edición use los estados editName, editActiveIngredient, etc. */}
+      {/* y que su form llame a handleSaveEdit */}
+      {/* Y que los botones Edit y Delete llamen a handleOpenEditModal y handleDelete respectivamente */}
+
       <div className="flex items-center gap-4 mb-6">
         <Link to="/medications" className="p-2 rounded-full text-gray-600 hover:bg-gray-100 transition-colors duration-200">
           <ArrowLeft size={20} />
@@ -155,14 +173,14 @@ const MedicationDetails: React.FC = () => {
             <h2 className="text-xl font-semibold text-indigo-700">{medication.name}</h2>
             <div className="flex space-x-2">
               <button
-                onClick={handleOpenEditModal}
+                onClick={handleOpenEditModal} // Conectado
                 className="p-2 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-full transition-colors duration-200"
                 title="Edit Medication"
               >
                 <Edit3 size={20} />
               </button>
               <button
-                onClick={handleDelete}
+                onClick={handleDelete} // Conectado
                 className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-full transition-colors duration-200"
                 title="Delete Medication"
               >
@@ -183,6 +201,7 @@ const MedicationDetails: React.FC = () => {
               <Info size={18} className="mr-3 mt-1 text-gray-400 flex-shrink-0" />
               <div>
                 <p className="font-medium text-gray-500">Active Ingredient</p>
+                {/* Asumiendo que medication.activeIngredient es camelCase aquí */}
                 <p className="text-gray-700">{medication.activeIngredient}</p>
               </div>
             </div>
@@ -213,7 +232,7 @@ const MedicationDetails: React.FC = () => {
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold text-gray-800">Edit Medication</h2>
                 <button onClick={() => setIsEditing(false)} className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100">
-                    <X size={24}/> {/* Asegúrate de tener X importado de lucide-react */}
+                    <X size={24}/>
                 </button>
             </div>
             <form className="space-y-4" onSubmit={handleSaveEdit}>
@@ -247,6 +266,7 @@ const MedicationDetails: React.FC = () => {
           </div>
         </div>
       )}
+
     </div>
   );
 };
