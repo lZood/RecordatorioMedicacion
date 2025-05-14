@@ -44,11 +44,11 @@ const Medications: React.FC = () => {
         return;
     }
 
-    const medicationData: Omit<Medication, 'id'> = { // 'id' será generado por Supabase
+    const medicationData: Omit<Medication, 'id'> = {
       name: newMedName,
-      activeIngredient: newMedActiveIngredient,
-      expirationDate: newMedExpirationDate,
-      description: newMedDescription || undefined, // Asegúrate de que description sea opcional o string vacío
+      activeIngredient: newMedActiveIngredient, // Correcto para la conversión automática
+      expirationDate: newMedExpirationDate,   // Correcto para la conversión automática (a expiration_date)
+      description: newMedDescription || undefined,
     };
 
     try {
