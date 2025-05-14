@@ -1,24 +1,45 @@
+// src/pages/Login.tsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, Lock, User } from 'lucide-react';
+import { Activity, Lock, User as UserIcon } from 'lucide-react'; // Renombrado User a UserIcon para evitar conflicto
+import { authService } from '../services/auth'; // Importa tu servicio de autenticación
+import { useAppContext } from '../contexts/AppContext'; // Para actualizar el estado del usuario
+import toast from 'react-hot-toast';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-  
-  const handleSubmit = (e: React.FormEvent) => {
+  const { setCurrentUser, loadInitialData } = useAppContext(); // Asumimos que estas funciones existen o las añadirás
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
-    // Simulate login delay
-    setTimeout(() => {
+    toast.loading('Signing in...', { id: 'login-toast' });
+
+    try {
+      const { user, session } = await authService.signIn(email, password); // Llama al servicio real
+      toast.dismiss('login-toast');
+
+      if (user && session) {
+        toast.success('Login successful!');
+        setCurrentUser(user); // Actualiza el usuario en el contexto global
+        await loadInitialData(); // Carga los datos después del login exitoso
+        navigate('/'); // Redirige al dashboard o página principal
+      } else {
+        // Esto no debería ocurrir si signIn no lanza error y devuelve user/session
+        toast.error('Login failed. Please try again.');
+      }
+    } catch (error: any) {
+      toast.dismiss('login-toast');
+      console.error("Login error:", error);
+      toast.error(error.message || 'Login failed. Please check your credentials.');
+    } finally {
       setIsLoading(false);
-      navigate('/');
-    }, 1000);
+    }
   };
-  
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -34,7 +55,7 @@ const Login: React.FC = () => {
           Doctor's Panel - Medication Reminder System
         </p>
       </div>
-      
+
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit}>
@@ -44,7 +65,7 @@ const Login: React.FC = () => {
               </label>
               <div className="mt-1 relative rounded-md shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User size={16} className="text-gray-400" />
+                  <UserIcon size={16} className="text-gray-400" />
                 </div>
                 <input
                   id="email"
@@ -59,7 +80,7 @@ const Login: React.FC = () => {
                 />
               </div>
             </div>
-            
+
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                 Password
@@ -81,7 +102,9 @@ const Login: React.FC = () => {
                 />
               </div>
             </div>
-            
+
+            {/* Recordarme y olvidó contraseña pueden implementarse después */}
+            {/*
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <input
@@ -94,20 +117,21 @@ const Login: React.FC = () => {
                   Remember me
                 </label>
               </div>
-              
+
               <div className="text-sm">
                 <a href="#" className="font-medium text-indigo-600 hover:text-indigo-500">
                   Forgot your password?
                 </a>
               </div>
             </div>
-            
+            */}
+
             <div>
               <button
                 type="submit"
                 disabled={isLoading}
                 className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                  isLoading ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'
+                  isLoading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
                 } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
               >
                 {isLoading ? 'Signing in...' : 'Sign in'}
