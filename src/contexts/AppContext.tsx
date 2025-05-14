@@ -143,26 +143,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
   // --- CRUD para Medicamentos ---
-  const addMedication = async (medicationData: Omit<Medication, 'id'>) => {
+  const addMedication = async (medicationData: Omit<Medication, 'id'>): Promise<Medication | undefined> => {
+    // medicationData aquí está en camelCase, tal como lo recibe de la página Medications.tsx
     if (!currentUser) {
       toast.error("You must be logged in to add a medication.");
       throw new Error("User not authenticated");
     }
     try {
-      // Tu tipo Medication no tiene createdAt, pero Supabase lo añade por defecto.
-      // El servicio medicationService.create espera Omit<Medication, 'id' | 'createdAt'>
-      // Si tu tipo Medication no tiene 'createdAt', está bien.
-      // Solo asegúrate de que el objeto que pasas a medicationService.create coincida.
-      // La migración de Supabase tiene 'created_at' y 'updated_at' para medications.
-      // Tu tipo 'Medication' en src/types/index.ts no los incluye. Podrías añadirlos si quieres usarlos en el frontend.
-      // Por ahora, asumiré que el servicio espera datos sin createdAt y que Supabase lo maneja.
-
-      // Si medicationService.create espera Omit<Medication, 'id' | 'createdAt'>
-      // y tu tipo Medication es { id, name, activeIngredient, expirationDate, description }
-      // entonces está bien pasar medicationData que omite 'id'.
+      // medicationService.create ahora se encarga internamente de mapear a snake_case
       const newMedication = await medicationService.create(medicationData);
       if (newMedication) {
-        setMedications(prevMeds => [...prevMeds, newMedication]);
+        setMedications(prevMeds => [...prevMeds, newMedication]); // newMedication debería ser camelCase devuelto por el servicio
         toast.success('Medication added successfully!');
         return newMedication;
       }
@@ -172,6 +163,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toast.error(`Failed to add medication: ${supabaseErrorMessage}`);
       throw error;
     }
+    return undefined; // Añadido para satisfacer la promesa si newMedication no se define
   };
 
   const updateMedication = async (id: string, updatedMedicationData: Partial<Medication>) => {
