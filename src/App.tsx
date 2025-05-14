@@ -11,6 +11,7 @@ import Login from './pages/Login';
 import Layout from './components/Layout';
 import PatientDetails from './pages/PatientDetails';
 import { AppProvider } from './contexts/AppContext';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
