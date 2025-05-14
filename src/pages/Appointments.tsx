@@ -3,19 +3,19 @@ import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import AppointmentCard from '../components/AppointmentCard';
 import { Calendar as CalendarIcon, Plus, Filter, User as UserIcon, Briefcase, Clock, X, Users } from 'lucide-react';
-import { Appointment, Patient, Doctor } from '../types'; // Asegúrate de que estos tipos estén definidos
+import { Appointment, Patient, Doctor } from '../types';
 import toast from 'react-hot-toast';
 
 const Appointments: React.FC = () => {
   const {
-    appointments,
-    patients,
-    doctors,
+    appointments = [], // Default to empty array
+    patients = [],   // Default to empty array
+    doctors = [],    // Default to empty array
     addAppointment,
     updateAppointment,
-    loadingAppointments, // Para mostrar feedback de carga de la lista
-    loadingData, // Para saber si patients/doctors están cargando
-    currentUser // Para verificar autenticación si es necesario aquí (aunque AppContext lo hace)
+    loadingAppointments,
+    loadingData, // General loading flag from AppContext
+    currentUser
   } = useAppContext();
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -33,68 +33,67 @@ const Appointments: React.FC = () => {
   const [time, setTime] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
   const [status, setStatus] = useState<Appointment['status']>('scheduled');
-  const [formLoading, setFormLoading] = useState(false); // Estado de carga para el envío del formulario
+  const [formLoading, setFormLoading] = useState(false);
 
 
   // Efecto para pre-llenar el formulario cuando se edita
   useEffect(() => {
     if (isEditing && currentAppointmentId) {
+      // 'appointments' ya tiene un valor por defecto de [] gracias a la desestructuración
       const appointmentToEdit = appointments.find(app => app.id === currentAppointmentId);
       if (appointmentToEdit) {
-        // Asumimos que appointmentToEdit.patient y .doctor son objetos si el servicio los trae así
-        // o patientId y doctorId si son solo los IDs.
-        // El tipo Appointment en AppContext debería reflejar esto.
-        // Por ahora, usaremos patientId y doctorId directamente.
         setPatientId( (appointmentToEdit as any).patient?.id || appointmentToEdit.patientId || '');
         setDoctorId( (appointmentToEdit as any).doctor?.id || appointmentToEdit.doctorId || '');
         setSpecialty(appointmentToEdit.specialty);
-        setDate(appointmentToEdit.date); // Asegúrate que esté en formato YYYY-MM-DD
-        setTime(appointmentToEdit.time); // Asegúrate que esté en formato HH:MM
+        setDate(appointmentToEdit.date);
+        setTime(appointmentToEdit.time);
         setDiagnosis(appointmentToEdit.diagnosis || '');
         setStatus(appointmentToEdit.status);
       }
     } else {
-      // Resetear para el modo "añadir"
       resetForm();
     }
-  }, [isEditing, currentAppointmentId, appointments]);
+  }, [isEditing, currentAppointmentId, appointments]); // appointments es una dependencia
 
   // Autocompletar especialidad cuando se selecciona un doctor
   useEffect(() => {
     if (doctorId) {
+      // 'doctors' ya tiene un valor por defecto de []
       const selectedDoctor = doctors.find(doc => doc.id === doctorId);
       if (selectedDoctor) {
         setSpecialty(selectedDoctor.specialty);
       }
-    } else if (!isEditing) { // Solo limpiar si no estamos editando y se deselecciona un doctor
+    } else if (!isEditing) {
       setSpecialty('');
     }
-  }, [doctorId, doctors, isEditing]);
+  }, [doctorId, doctors, isEditing]); // doctors es una dependencia
 
   const resetForm = () => {
     const today = new Date();
-    const offset = today.getTimezoneOffset(); // Obtener el offset de la zona horaria en minutos
-    const localToday = new Date(today.getTime() - (offset*60*1000)); // Ajustar a la fecha local
+    const offset = today.getTimezoneOffset();
+    const localToday = new Date(today.getTime() - (offset*60*1000));
     
     setPatientId('');
     setDoctorId('');
     setSpecialty('');
-    setDate(localToday.toISOString().split('T')[0]); // Fecha de hoy en YYYY-MM-DD
-    setTime(''); // Podrías poner una hora por defecto si quieres, ej: "09:00"
+    setDate(localToday.toISOString().split('T')[0]);
+    setTime('');
     setDiagnosis('');
     setStatus('scheduled');
-    setCurrentAppointmentId(null);
+    setCurrentAppointmentId(null); // También resetea el ID de la cita actual
   };
 
   const handleOpenAddModal = () => {
     setIsEditing(false);
-    resetForm();
+    // El useEffect se encargará de llamar a resetForm porque isEditing cambia
+    // y currentAppointmentId se puede establecer a null aquí o en resetForm.
+    setCurrentAppointmentId(null); 
     setShowModal(true);
   };
 
   const handleOpenEditModal = (appointment: Appointment) => {
     setIsEditing(true);
-    setCurrentAppointmentId(appointment.id); // useEffect se encargará de llenar el formulario
+    setCurrentAppointmentId(appointment.id); // useEffect llenará el formulario
     setShowModal(true);
   };
 
@@ -112,7 +111,7 @@ const Appointments: React.FC = () => {
       toast.error("Date must be in YYYY-MM-DD format.");
       return;
     }
-    if (!/^\d{2}:\d{2}(:\d{2})?$/.test(time)) { // Acepta HH:MM o HH:MM:SS
+    if (!/^\d{2}:\d{2}(:\d{2})?$/.test(time)) {
       toast.error("Time must be in HH:MM format.");
       return;
     }
@@ -123,7 +122,7 @@ const Appointments: React.FC = () => {
       doctorId,
       specialty,
       date,
-      time, // Asegúrate que el formato sea el esperado por la DB (HH:MM o HH:MM:SS)
+      time,
       diagnosis: diagnosis || undefined,
       status,
     };
@@ -135,15 +134,15 @@ const Appointments: React.FC = () => {
         await addAppointment(appointmentData);
       }
       setShowModal(false);
-      resetForm();
+      // resetForm(); // Se resetea al cambiar isEditing o currentAppointmentId a través de useEffect
     } catch (error) {
-      // El toast de error ya se maneja en AppContext
       console.error("Failed to save appointment from page:", error);
     } finally {
       setFormLoading(false);
     }
   };
 
+  // 'appointments' ya tiene un valor por defecto de []
   const filteredAppointments = appointments.filter(appointment => {
     const matchesStatus = statusFilter === 'all' || appointment.status === statusFilter;
     const matchesDate = !dateFilter || appointment.date === dateFilter;
@@ -161,7 +160,9 @@ const Appointments: React.FC = () => {
 
   const sortedDates = Object.keys(appointmentsByDate).sort((a,b) => new Date(a).getTime() - new Date(b).getTime());
 
-  if (loadingData && !doctors.length && !patients.length) { // Muestra un loader si los datos primarios (pacientes, doctores) están cargando
+  // Usar loadingData para el estado de carga inicial general,
+  // y loadingAppointments para la carga específica de citas si es necesario.
+  if (loadingData && (!doctors.length || !patients.length)) {
     return <div className="flex justify-center items-center h-screen">Loading initial data...</div>;
   }
 
@@ -220,10 +221,11 @@ const Appointments: React.FC = () => {
                 })}
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* 'appointmentsByDate[d]' es un array y no debería ser undefined si sortedDates tiene 'd' */}
                 {appointmentsByDate[d].map(appointment => (
                   <AppointmentCard
                     key={appointment.id}
-                    appointment={appointment} // appointment aquí puede tener patient y doctor anidados si el servicio los trae
+                    appointment={appointment}
                     onEdit={() => handleOpenEditModal(appointment)}
                   />
                 ))}
@@ -241,7 +243,7 @@ const Appointments: React.FC = () => {
           <div className="bg-white rounded-lg p-6 w-full max-w-lg my-8">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-800">{isEditing ? 'Edit Appointment' : 'Schedule New Appointment'}</h2>
-              <button onClick={() => { setShowModal(false); resetForm(); }} className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100">
+              <button onClick={() => { setShowModal(false); /* resetForm se llama por useEffect al cambiar isEditing/currentAppointmentId */ }} className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100">
                 <X size={24} />
               </button>
             </div>
@@ -253,6 +255,7 @@ const Appointments: React.FC = () => {
                 <select id="patientId" value={patientId} onChange={(e) => setPatientId(e.target.value)} required
                         className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                   <option value="" disabled>Select a patient</option>
+                  {/* 'patients' ya tiene un valor por defecto de [] */}
                   {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
@@ -264,6 +267,7 @@ const Appointments: React.FC = () => {
                 <select id="doctorId" value={doctorId} onChange={(e) => setDoctorId(e.target.value)} required
                         className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                   <option value="" disabled>Select a doctor</option>
+                  {/* 'doctors' ya tiene un valor por defecto de [] */}
                   {doctors.map((doc) => <option key={doc.id} value={doc.id}>{doc.name} - {doc.specialty}</option>)}
                 </select>
               </div>
@@ -309,7 +313,7 @@ const Appointments: React.FC = () => {
               </div>
 
               <div className="flex justify-end gap-3 pt-4">
-                <button type="button" onClick={() => { setShowModal(false); resetForm(); }}
+                <button type="button" onClick={() => { setShowModal(false); /* resetForm se llama por useEffect */ }}
                         className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
                         disabled={formLoading}>Cancel</button>
                 <button type="submit"
