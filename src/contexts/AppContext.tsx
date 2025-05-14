@@ -166,46 +166,49 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return undefined; // Añadido para satisfacer la promesa si newMedication no se define
   };
 
+  const getMedicationById = (id: string): Medication | undefined => {
+    // Asumiendo que 'medications' en el estado ya está en camelCase
+    // o que el servicio lo devuelve en camelCase.
+    // Si 'medications' en el estado está en snake_case, necesitarías convertirlo aquí
+    // o acceder con snake_case y mapear a un objeto Medication.
+    const med = medications.find(m => m.id === id);
+    if (med) {
+        // Si 'med' del estado viene con snake_case, y tu tipo Medication es camelCase:
+        if ((med as any).active_ingredient || (med as any).expiration_date) {
+            return {
+                id: med.id,
+                name: med.name,
+                activeIngredient: (med as any).active_ingredient || med.activeIngredient,
+                expirationDate: (med as any).expiration_date || med.expirationDate,
+                description: med.description,
+            };
+        }
+        return med; // Asume que ya está en camelCase
+    }
+    return undefined;
+  };
+
   const updateMedication = async (id: string, updatedMedicationData: Partial<Medication>) => {
-    if (!currentUser) {
-      toast.error("You must be logged in to update a medication.");
-      throw new Error("User not authenticated");
-    }
+    // updatedMedicationData viene en camelCase de MedicationDetails.tsx
+    if (!currentUser) { /* ... manejo de error ... */ throw new Error("User not authenticated"); }
     try {
-      const updatedMedication = await medicationService.update(id, updatedMedicationData);
-      if (updatedMedication) {
+      const updatedMed = await medicationService.update(id, updatedMedicationData); // El servicio maneja la conversión a snake_case para la DB
+      if (updatedMed) { // updatedMed debería venir en camelCase del servicio
         setMedications(prevMeds =>
-          prevMeds.map(med => (med.id === id ? { ...med, ...updatedMedication } : med))
+          prevMeds.map(m => (m.id === id ? { ...m, ...updatedMed } : m))
         );
-        toast.success('Medication updated successfully!');
+        // toast.success('Medication updated!'); // Ya lo hace MedicationDetails
       }
-    } catch (error: any) {
-      console.error("Error updating medication:", error);
-      const supabaseErrorMessage = error?.message || "An unknown error occurred.";
-      toast.error(`Failed to update medication: ${supabaseErrorMessage}`);
-      throw error;
-    }
+    } catch (error) { /* ... manejo de error ... */ throw error; }
   };
 
   const deleteMedication = async (id: string) => {
-     if (!currentUser) {
-      toast.error("You must be logged in to delete a medication.");
-      throw new Error("User not authenticated");
-    }
+    if (!currentUser) { /* ... manejo de error ... */ throw new Error("User not authenticated"); }
     try {
       await medicationService.delete(id);
-      setMedications(prevMeds => prevMeds.filter(med => med.id !== id));
-      toast.success('Medication deleted successfully!');
-    } catch (error: any) {
-      console.error("Error deleting medication:", error);
-      const supabaseErrorMessage = error?.message || "An unknown error occurred.";
-      toast.error(`Failed to delete medication: ${supabaseErrorMessage}`);
-      throw error;
-    }
-  };
-
-  const getMedicationById = (id: string) => {
-    return medications.find(med => med.id === id);
+      setMedications(prevMeds => prevMeds.filter(m => m.id !== id));
+      // toast.success('Medication deleted!'); // Ya lo hace MedicationDetails
+    } catch (error) { /* ... manejo de error ... */ throw error; }
   };
 
   // CRUD PACIENTES
