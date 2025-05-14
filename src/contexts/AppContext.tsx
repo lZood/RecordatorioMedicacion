@@ -1,7 +1,7 @@
 // src/contexts/AppContext.tsx
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Patient, Medication, Appointment, VitalSign, MedicationIntake } from '../types'; // Tus tipos
-import { User } from '@supabase/supabase-js'; // Tipo User de Supabase
+import { User, Subscription } from '@supabase/supabase-js'; // Importa Subscription
 import { supabase } from '../lib/supabase'; // Cliente Supabase
 import { patientService } from '../services/patients';
 import { medicationService } from '../services/medications';
@@ -9,32 +9,33 @@ import { appointmentService } from '../services/appointments';
 import { vitalSignService } from '../services/vitalSigns';
 import { medicationIntakeService } from '../services/medicationIntakes';
 import toast from 'react-hot-toast';
+import { authService } from '../services/auth'; // Asegúrate de que authService está importado si lo usas
 
+// ... (interfaz AppContextType y createContext permanecen igual) ...
 interface AppContextType {
   currentUser: User | null;
-  loadingAuth: boolean; // Para saber si se está verificando la sesión
+  loadingAuth: boolean;
   patients: Patient[];
   medications: Medication[];
   appointments: Appointment[];
   vitalSigns: VitalSign[];
   medicationIntakes: MedicationIntake[];
-  loadingData: boolean; // Para la carga de datos principales
+  loadingData: boolean;
   setCurrentUser: (user: User | null) => void;
   addPatient: (patientData: Omit<Patient, 'id' | 'createdAt'>) => Promise<Patient | undefined>;
   updatePatient: (id: string, updatedPatientData: Partial<Patient>) => Promise<void>;
   deletePatient: (id: string) => Promise<void>;
   getPatientById: (id: string) => Patient | undefined;
-  // Añade aquí las funciones para las otras entidades (Medication, Appointment, etc.)
-  // ...
   signOut: () => Promise<void>;
-  loadInitialData: () => Promise<void>; // Función para cargar datos
+  loadInitialData: (userOverride?: User | null) => Promise<void>; // Modificado para aceptar un usuario opcional
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loadingAuth, setLoadingAuth] = useState(true); // Inicia como true para verificar sesión
+  const [loadingAuth, setLoadingAuth] = useState(true);
   const [loadingData, setLoadingData] = useState(false);
 
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -43,53 +44,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
   const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntake[]>([]);
 
-  // Verificar sesión al montar el AppProvider
-  useEffect(() => {
-    const checkSession = async () => {
-      setLoadingAuth(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        setCurrentUser(session.user);
-        await loadInitialData(session.user); // Carga datos si hay sesión
-      } else {
-        setCurrentUser(null);
-      }
-      setLoadingAuth(false);
-    };
-    checkSession();
+  // Cargar datos iniciales
+  const loadInitialData = async (userOverride?: User | null) => { // Acepta userOverride
+    const userToUse = userOverride !== undefined ? userOverride : currentUser; // Usa el override o el estado actual
 
-    // Escuchar cambios en el estado de autenticación
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setLoadingAuth(true);
-      if (session) {
-        setCurrentUser(session.user);
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') { // Cargar datos al iniciar sesión o refrescar token
-            await loadInitialData(session.user);
-        }
-      } else {
-        setCurrentUser(null);
-        // Limpiar datos si el usuario cierra sesión
-        setPatients([]);
-        setMedications([]);
-        setAppointments([]);
-        setVitalSigns([]);
-        setMedicationIntakes([]);
-      }
-      setLoadingAuth(false);
-    });
-
-    return () => {
-      authListener?.unsubscribe();
-    };
-  }, []);
-
-
-  const loadInitialData = async (user: User | null = currentUser) => {
-    if (!user) { // Solo cargar si hay un usuario autenticado
-        console.log("No user, skipping data load.");
-        return;
+    if (!userToUse) {
+      console.log("No user session, skipping data load.");
+      setPatients([]);
+      setMedications([]);
+      setAppointments([]);
+      setVitalSigns([]);
+      setMedicationIntakes([]);
+      setLoadingData(false);
+      return;
     }
-    console.log("Loading initial data for user:", user.id);
+    console.log("Loading initial data for user:", userToUse.id);
     setLoadingData(true);
     try {
       const [
@@ -100,7 +69,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         medicationIntakesData,
       ] = await Promise.all([
         patientService.getAll(),
-        medicationService.getAll(),
+        medicationService.getAll(), // Asumiendo que tienes estos servicios
         appointmentService.getAll(),
         vitalSignService.getAll(),
         medicationIntakeService.getAll(),
@@ -118,6 +87,57 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+
+  useEffect(() => {
+    setLoadingAuth(true);
+    // Variable para almacenar la suscripción
+    let subscription: Subscription | undefined;
+
+    const checkSessionAndSubscribe = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setCurrentUser(session.user);
+        await loadInitialData(session.user); // Carga datos si hay sesión
+      } else {
+        setCurrentUser(null);
+        await loadInitialData(null); // Asegura que los datos se limpien si no hay sesión
+      }
+      setLoadingAuth(false);
+
+      // Escuchar cambios en el estado de autenticación
+      const { data: authListenerData } = supabase.auth.onAuthStateChange(async (event, session) => {
+        // No es necesario setLoadingAuth(true) aquí usualmente,
+        // ya que el primer setLoadingAuth(false) se ejecuta después de la comprobación inicial.
+        // Pero si quieres ser explícito o manejar transiciones:
+        // setLoadingAuth(true);
+
+        if (session) {
+          setCurrentUser(session.user);
+          // Solo recargar datos si es un evento de SIGNED_IN o si el usuario actual es diferente
+          if (event === 'SIGNED_IN' || (event === 'TOKEN_REFRESHED' && (!currentUser || currentUser.id !== session.user.id))) {
+            await loadInitialData(session.user);
+          }
+        } else {
+          setCurrentUser(null);
+          await loadInitialData(null); // Limpia datos
+        }
+        // setLoadingAuth(false); // Si lo activaste arriba
+      });
+      // Asigna la suscripción
+      subscription = authListenerData.subscription;
+    };
+
+    checkSessionAndSubscribe();
+
+    // Función de limpieza para desuscribirse
+    return () => {
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
+  }, []); // El array de dependencias vacío asegura que esto se ejecute solo una vez al montar y limpiar al desmontar
+
+
   const addPatient = async (patientData: Omit<Patient, 'id' | 'createdAt'>) => {
     if (!currentUser) {
       toast.error("You must be logged in to add a patient.");
@@ -132,7 +152,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     } catch (error: any) {
       console.error("Error adding patient (AppContext):", error);
-      toast.error(`Failed to add patient: ${error.message}`);
+      const supabaseErrorMessage = error?.message || "An unknown error occurred.";
+      toast.error(`Failed to add patient: ${supabaseErrorMessage}`);
       throw error;
     }
   };
@@ -154,7 +175,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     } catch (error: any) {
       console.error("Error updating patient:", error);
-      toast.error(`Failed to update patient: ${error.message}`);
+      const supabaseErrorMessage = error?.message || "An unknown error occurred.";
+      toast.error(`Failed to update patient: ${supabaseErrorMessage}`);
       throw error;
     }
   };
@@ -170,7 +192,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toast.success('Patient deleted successfully!');
     } catch (error: any) {
       console.error("Error deleting patient:", error);
-      toast.error(`Failed to delete patient: ${error.message}`);
+      const supabaseErrorMessage = error?.message || "An unknown error occurred.";
+      toast.error(`Failed to delete patient: ${supabaseErrorMessage}`);
       throw error;
     }
   };
@@ -183,20 +206,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const signOut = async () => {
     toast.loading('Signing out...', { id: 'signout-toast' });
     try {
-      await authService.signOut();
-      setCurrentUser(null);
-      // Limpiar estados de datos
-      setPatients([]);
-      setMedications([]);
-      setAppointments([]);
-      setVitalSigns([]);
-      setMedicationIntakes([]);
+      await authService.signOut(); // authService.signOut() ya llama a supabase.auth.signOut()
+      // onAuthStateChange se encargará de actualizar currentUser y limpiar los datos
       toast.dismiss('signout-toast');
       toast.success('Signed out successfully!');
     } catch (error: any) {
       toast.dismiss('signout-toast');
       console.error("Sign out error:", error);
-      toast.error(`Sign out failed: ${error.message}`);
+      const supabaseErrorMessage = error?.message || "An unknown error occurred.";
+      toast.error(`Sign out failed: ${supabaseErrorMessage}`);
     }
   };
 
@@ -211,12 +229,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         vitalSigns,
         medicationIntakes,
         loadingData,
-        setCurrentUser, // Asegúrate que se pasa en el contexto
+        setCurrentUser,
         addPatient,
         updatePatient,
         deletePatient,
         getPatientById,
-        // ... otras funciones ...
         signOut,
         loadInitialData
       }}
