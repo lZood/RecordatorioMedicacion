@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { patientService } from '../services/patients'; // Asegúrate que la ruta sea correcta
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react'; // Añade useEffect
 import { Patient, Medication, Appointment, VitalSign, MedicationIntake } from '../types';
 import { mockPatients, mockMedications, mockAppointments, mockVitalSigns, mockMedicationIntakes } from '../data/mockData';
 
@@ -20,15 +21,43 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [patients, setPatients] = useState<Patient[]>(mockPatients);
+  const [patients, setPatients] = useState<Patient[]>([]); // Inicializa como array vacío
   const [medications, setMedications] = useState<Medication[]>(mockMedications);
   const [appointments, setAppointments] = useState<Appointment[]>(mockAppointments);
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>(mockVitalSigns);
   const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntake[]>(mockMedicationIntakes);
+  const [loading, setLoading] = useState(true); // Opcional: para manejar el estado de carga
 
-  const addPatient = (patient: Patient) => {
-    setPatients([...patients, patient]);
-  };
+  useEffect(() => {
+    const fetchPatients = async () => {
+      try {
+        setLoading(true);
+        const data = await patientService.getAll();
+        if (data) {
+          setPatients(data);
+        }
+      } catch (error) {
+        console.error("Error fetching patients:", error);
+        // Aquí podrías mostrar una notificación de error al usuario
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchPatients();
+  }, []);
+  
+  const addPatient = async (patientData: Omit<Patient, 'id' | 'createdAt'>) => {
+  try {
+    const newPatient = await patientService.create(patientData);
+    if (newPatient) {
+      setPatients(prevPatients => [...prevPatients, newPatient]);
+      // Aquí podrías mostrar una notificación de éxito
+    }
+  } catch (error) {
+    console.error("Error adding patient:", error);
+    // Aquí podrías mostrar una notificación de error al usuario
+  }
+};
 
   const addMedication = (medication: Medication) => {
     setMedications([...medications, medication]);
@@ -46,17 +75,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setMedicationIntakes([...medicationIntakes, intake]);
   };
 
-  const updatePatient = (id: string, updatedPatient: Partial<Patient>) => {
-    setPatients(
-      patients.map(patient => 
-        patient.id === id ? { ...patient, ...updatedPatient } : patient
-      )
-    );
-  };
+  const updatePatient = async (id: string, updatedPatientData: Partial<Patient>) => {
+  try {
+    const updatedPatient = await patientService.update(id, updatedPatientData);
+    if (updatedPatient) {
+      setPatients(prevPatients =>
+        prevPatients.map(patient =>
+          patient.id === id ? { ...patient, ...updatedPatient } : patient
+        )
+      );
+      // Aquí podrías mostrar una notificación de éxito
+    }
+  } catch (error) {
+    console.error("Error updating patient:", error);
+    // Aquí podrías mostrar una notificación de error al usuario
+  }
+};
 
+  
   const getPatientById = (id: string) => {
-    return patients.find(patient => patient.id === id);
-  };
+  // Primero intenta encontrarlo en el estado local
+  const localPatient = patients.find(patient => patient.id === id);
+  if (localPatient) {
+    return localPatient;
+  }
+  // Opcional: Si no se encuentra localmente, podrías intentar cargarlo desde el servicio
+  // console.warn(`Patient with id ${id} not found in local state.`);
+  // Podrías implementar una carga individual aquí si fuera necesario:
+  // const fetchSinglePatient = async () => {
+  //   const dbPatient = await patientService.getById(id);
+  //   if (dbPatient) setPatients(prev => [...prev, dbPatient]); // Añadirlo al estado
+  //   return dbPatient;
+  // };
+  // return fetchSinglePatient(); // Esto haría la función asíncrona
+  return undefined; // O simplemente retornar undefined si no está en el estado
+};
 
   return (
     <AppContext.Provider
