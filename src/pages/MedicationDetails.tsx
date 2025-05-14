@@ -37,27 +37,29 @@ const MedicationDetails: React.FC = () => {
             expirationDate: (med as any).expiration_date || med.expirationDate,
             description: med.description
         };
-        setMedication(medicationData);
-        setEditName(medicationData.name);
-        setEditActiveIngredient(medicationData.activeIngredient);
-        setEditExpirationDate(medicationData.expirationDate); // Debe ser YYYY-MM-DD
-        setEditDescription(medicationData.description || '');
+        setMedication(med);
+      setEditName(med.name);
+      setEditActiveIngredient(med.activeIngredient);
+      setEditExpirationDate(med.expirationDate);
+      setEditDescription(med.description || '');
       } else {
         setMedication(undefined); // No encontrado
       }
     }
-  }, [id, getMedicationById]);
+}, [id, getMedicationById, medications]);
 
 
-  const handleOpenEditModal = () => {
-    if (medication) {
-      setEditName(medication.name);
-      setEditActiveIngredient(medication.activeIngredient);
-      setEditExpirationDate(medication.expirationDate); // Formato YYYY-MM-DD
-      setEditDescription(medication.description || '');
-      setIsEditing(true);
-    }
-  };
+ const handleOpenEditModal = () => {
+  if (medication) {
+    // Asegúrate de que los datos que cargas en el formulario de edición
+    // sean los correctos (camelCase si tu estado medication es camelCase)
+    setEditName(medication.name);
+    setEditActiveIngredient(medication.activeIngredient); // Asume camelCase
+    setEditExpirationDate(medication.expirationDate); // Asume camelCase y formato YYYY-MM-DD
+    setEditDescription(medication.description || '');
+    setIsEditing(true);
+  }
+};
 
   const handleSaveEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -72,12 +74,12 @@ const MedicationDetails: React.FC = () => {
         return;
     }
 
-    const updatedMedData: Partial<Medication> = {
-      name: editName,
-      activeIngredient: editActiveIngredient,
-      expirationDate: editExpirationDate,
-      description: editDescription,
-    };
+    const updatedMedData: Partial<Medication> = { // Esto está bien, Partial<Medication> es camelCase
+    name: editName,
+    activeIngredient: editActiveIngredient,
+    expirationDate: editExpirationDate,
+    description: editDescription,
+  };
 
     try {
       await updateMedication(id, updatedMedData);
