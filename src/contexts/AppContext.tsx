@@ -4,6 +4,7 @@ import { Patient, Medication, Appointment, VitalSign, MedicationIntake } from '.
 import { User, Subscription } from '@supabase/supabase-js'; // Importa Subscription
 import { supabase } from '../lib/supabase'; // Cliente Supabase
 import { patientService } from '../services/patients';
+import { Medication } from '../types';
 import { medicationService } from '../services/medications';
 import { appointmentService } from '../services/appointments';
 import { vitalSignService } from '../services/vitalSigns';
@@ -17,6 +18,10 @@ interface AppContextType {
   loadingAuth: boolean;
   patients: Patient[];
   medications: Medication[];
+  addMedication: (medicationData: Omit<Medication, 'id' | 'createdAt'>) => Promise<Medication | undefined>; // createdAt no está en tu tipo Medication, pero es bueno ser consistente si Supabase lo añade
+  updateMedication: (id: string, updatedMedicationData: Partial<Medication>) => Promise<void>;
+  deleteMedication: (id: string) => Promise<void>;
+  getMedicationById: (id: string) => Medication | undefined; // Si es necesario
   appointments: Appointment[];
   vitalSigns: VitalSign[];
   medicationIntakes: MedicationIntake[];
@@ -138,6 +143,81 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []); // El array de dependencias vacío asegura que esto se ejecute solo una vez al montar y limpiar al desmontar
 
 
+  // --- CRUD para Medicamentos ---
+  const addMedication = async (medicationData: Omit<Medication, 'id'>) => {
+    if (!currentUser) {
+      toast.error("You must be logged in to add a medication.");
+      throw new Error("User not authenticated");
+    }
+    try {
+      // Tu tipo Medication no tiene createdAt, pero Supabase lo añade por defecto.
+      // El servicio medicationService.create espera Omit<Medication, 'id' | 'createdAt'>
+      // Si tu tipo Medication no tiene 'createdAt', está bien.
+      // Solo asegúrate de que el objeto que pasas a medicationService.create coincida.
+      // La migración de Supabase tiene 'created_at' y 'updated_at' para medications.
+      // Tu tipo 'Medication' en src/types/index.ts no los incluye. Podrías añadirlos si quieres usarlos en el frontend.
+      // Por ahora, asumiré que el servicio espera datos sin createdAt y que Supabase lo maneja.
+
+      // Si medicationService.create espera Omit<Medication, 'id' | 'createdAt'>
+      // y tu tipo Medication es { id, name, activeIngredient, expirationDate, description }
+      // entonces está bien pasar medicationData que omite 'id'.
+      const newMedication = await medicationService.create(medicationData);
+      if (newMedication) {
+        setMedications(prevMeds => [...prevMeds, newMedication]);
+        toast.success('Medication added successfully!');
+        return newMedication;
+      }
+    } catch (error: any) {
+      console.error("Error adding medication (AppContext):", error);
+      const supabaseErrorMessage = error?.message || "An unknown error occurred.";
+      toast.error(`Failed to add medication: ${supabaseErrorMessage}`);
+      throw error;
+    }
+  };
+
+  const updateMedication = async (id: string, updatedMedicationData: Partial<Medication>) => {
+    if (!currentUser) {
+      toast.error("You must be logged in to update a medication.");
+      throw new Error("User not authenticated");
+    }
+    try {
+      const updatedMedication = await medicationService.update(id, updatedMedicationData);
+      if (updatedMedication) {
+        setMedications(prevMeds =>
+          prevMeds.map(med => (med.id === id ? { ...med, ...updatedMedication } : med))
+        );
+        toast.success('Medication updated successfully!');
+      }
+    } catch (error: any) {
+      console.error("Error updating medication:", error);
+      const supabaseErrorMessage = error?.message || "An unknown error occurred.";
+      toast.error(`Failed to update medication: ${supabaseErrorMessage}`);
+      throw error;
+    }
+  };
+
+  const deleteMedication = async (id: string) => {
+     if (!currentUser) {
+      toast.error("You must be logged in to delete a medication.");
+      throw new Error("User not authenticated");
+    }
+    try {
+      await medicationService.delete(id);
+      setMedications(prevMeds => prevMeds.filter(med => med.id !== id));
+      toast.success('Medication deleted successfully!');
+    } catch (error: any) {
+      console.error("Error deleting medication:", error);
+      const supabaseErrorMessage = error?.message || "An unknown error occurred.";
+      toast.error(`Failed to delete medication: ${supabaseErrorMessage}`);
+      throw error;
+    }
+  };
+
+  const getMedicationById = (id: string) => {
+    return medications.find(med => med.id === id);
+  };
+
+  // CRUD PACIENTES
   const addPatient = async (patientData: Omit<Patient, 'id' | 'createdAt'>) => {
     if (!currentUser) {
       toast.error("You must be logged in to add a patient.");
