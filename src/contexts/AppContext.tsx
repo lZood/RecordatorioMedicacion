@@ -1,131 +1,224 @@
-import { patientService } from '../services/patients'; // Asegúrate que la ruta sea correcta
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react'; // Añade useEffect
-import { Patient, Medication, Appointment, VitalSign, MedicationIntake } from '../types';
-import { mockPatients, mockMedications, mockAppointments, mockVitalSigns, mockMedicationIntakes } from '../data/mockData';
+// src/contexts/AppContext.tsx
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { Patient, Medication, Appointment, VitalSign, MedicationIntake } from '../types'; // Tus tipos
+import { User } from '@supabase/supabase-js'; // Tipo User de Supabase
+import { supabase } from '../lib/supabase'; // Cliente Supabase
+import { patientService } from '../services/patients';
+import { medicationService } from '../services/medications';
+import { appointmentService } from '../services/appointments';
+import { vitalSignService } from '../services/vitalSigns';
+import { medicationIntakeService } from '../services/medicationIntakes';
+import toast from 'react-hot-toast';
 
 interface AppContextType {
+  currentUser: User | null;
+  loadingAuth: boolean; // Para saber si se está verificando la sesión
   patients: Patient[];
   medications: Medication[];
   appointments: Appointment[];
   vitalSigns: VitalSign[];
   medicationIntakes: MedicationIntake[];
-  addPatient: (patient: Patient) => void;
-  addMedication: (medication: Medication) => void;
-  addAppointment: (appointment: Appointment) => void;
-  addVitalSign: (vitalSign: VitalSign) => void;
-  addMedicationIntake: (intake: MedicationIntake) => void;
-  updatePatient: (id: string, updatedPatient: Partial<Patient>) => void;
+  loadingData: boolean; // Para la carga de datos principales
+  setCurrentUser: (user: User | null) => void;
+  addPatient: (patientData: Omit<Patient, 'id' | 'createdAt'>) => Promise<Patient | undefined>;
+  updatePatient: (id: string, updatedPatientData: Partial<Patient>) => Promise<void>;
+  deletePatient: (id: string) => Promise<void>;
   getPatientById: (id: string) => Patient | undefined;
+  // Añade aquí las funciones para las otras entidades (Medication, Appointment, etc.)
+  // ...
+  signOut: () => Promise<void>;
+  loadInitialData: () => Promise<void>; // Función para cargar datos
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [patients, setPatients] = useState<Patient[]>([]); // Inicializa como array vacío
-  const [medications, setMedications] = useState<Medication[]>(mockMedications);
-  const [appointments, setAppointments] = useState<Appointment[]>(mockAppointments);
-  const [vitalSigns, setVitalSigns] = useState<VitalSign[]>(mockVitalSigns);
-  const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntake[]>(mockMedicationIntakes);
-  const [loading, setLoading] = useState(true); // Opcional: para manejar el estado de carga
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loadingAuth, setLoadingAuth] = useState(true); // Inicia como true para verificar sesión
+  const [loadingData, setLoadingData] = useState(false);
 
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [medications, setMedications] = useState<Medication[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
+  const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntake[]>([]);
+
+  // Verificar sesión al montar el AppProvider
   useEffect(() => {
-    const fetchPatients = async () => {
-      try {
-        setLoading(true);
-        const data = await patientService.getAll();
-        if (data) {
-          setPatients(data);
-        }
-      } catch (error) {
-        console.error("Error fetching patients:", error);
-        // Aquí podrías mostrar una notificación de error al usuario
-      } finally {
-        setLoading(false);
+    const checkSession = async () => {
+      setLoadingAuth(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setCurrentUser(session.user);
+        await loadInitialData(session.user); // Carga datos si hay sesión
+      } else {
+        setCurrentUser(null);
       }
+      setLoadingAuth(false);
     };
-    fetchPatients();
+    checkSession();
+
+    // Escuchar cambios en el estado de autenticación
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      setLoadingAuth(true);
+      if (session) {
+        setCurrentUser(session.user);
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') { // Cargar datos al iniciar sesión o refrescar token
+            await loadInitialData(session.user);
+        }
+      } else {
+        setCurrentUser(null);
+        // Limpiar datos si el usuario cierra sesión
+        setPatients([]);
+        setMedications([]);
+        setAppointments([]);
+        setVitalSigns([]);
+        setMedicationIntakes([]);
+      }
+      setLoadingAuth(false);
+    });
+
+    return () => {
+      authListener?.unsubscribe();
+    };
   }, []);
-  
-  const addPatient = async (patientData: Omit<Patient, 'id' | 'createdAt'>) => {
-  try {
-    const newPatient = await patientService.create(patientData);
-    if (newPatient) {
-      setPatients(prevPatients => [...prevPatients, newPatient]);
-      // Aquí podrías mostrar una notificación de éxito
+
+
+  const loadInitialData = async (user: User | null = currentUser) => {
+    if (!user) { // Solo cargar si hay un usuario autenticado
+        console.log("No user, skipping data load.");
+        return;
     }
-  } catch (error) {
-    console.error("Error adding patient:", error);
-    // Aquí podrías mostrar una notificación de error al usuario
-  }
-};
-
-  const addMedication = (medication: Medication) => {
-    setMedications([...medications, medication]);
+    console.log("Loading initial data for user:", user.id);
+    setLoadingData(true);
+    try {
+      const [
+        patientsData,
+        medicationsData,
+        appointmentsData,
+        vitalSignsData,
+        medicationIntakesData,
+      ] = await Promise.all([
+        patientService.getAll(),
+        medicationService.getAll(),
+        appointmentService.getAll(),
+        vitalSignService.getAll(),
+        medicationIntakeService.getAll(),
+      ]);
+      setPatients(patientsData || []);
+      setMedications(medicationsData || []);
+      setAppointments(appointmentsData || []);
+      setVitalSigns(vitalSignsData || []);
+      setMedicationIntakes(medicationIntakesData || []);
+    } catch (error) {
+      console.error("Error loading initial data:", error);
+      toast.error("Could not load app data.");
+    } finally {
+      setLoadingData(false);
+    }
   };
 
-  const addAppointment = (appointment: Appointment) => {
-    setAppointments([...appointments, appointment]);
-  };
-
-  const addVitalSign = (vitalSign: VitalSign) => {
-    setVitalSigns([...vitalSigns, vitalSign]);
-  };
-
-  const addMedicationIntake = (intake: MedicationIntake) => {
-    setMedicationIntakes([...medicationIntakes, intake]);
+  const addPatient = async (patientData: Omit<Patient, 'id' | 'createdAt'>) => {
+    if (!currentUser) {
+      toast.error("You must be logged in to add a patient.");
+      throw new Error("User not authenticated");
+    }
+    try {
+      const newPatient = await patientService.create(patientData);
+      if (newPatient) {
+        setPatients(prevPatients => [...prevPatients, newPatient]);
+        toast.success('Patient added successfully!');
+        return newPatient;
+      }
+    } catch (error: any) {
+      console.error("Error adding patient (AppContext):", error);
+      toast.error(`Failed to add patient: ${error.message}`);
+      throw error;
+    }
   };
 
   const updatePatient = async (id: string, updatedPatientData: Partial<Patient>) => {
-  try {
-    const updatedPatient = await patientService.update(id, updatedPatientData);
-    if (updatedPatient) {
-      setPatients(prevPatients =>
-        prevPatients.map(patient =>
-          patient.id === id ? { ...patient, ...updatedPatient } : patient
-        )
-      );
-      // Aquí podrías mostrar una notificación de éxito
+    if (!currentUser) {
+      toast.error("You must be logged in to update a patient.");
+      throw new Error("User not authenticated");
     }
-  } catch (error) {
-    console.error("Error updating patient:", error);
-    // Aquí podrías mostrar una notificación de error al usuario
-  }
-};
+    try {
+      const updatedPatient = await patientService.update(id, updatedPatientData);
+      if (updatedPatient) {
+        setPatients(prevPatients =>
+          prevPatients.map(patient =>
+            patient.id === id ? { ...patient, ...updatedPatient } : patient
+          )
+        );
+        toast.success('Patient updated successfully!');
+      }
+    } catch (error: any) {
+      console.error("Error updating patient:", error);
+      toast.error(`Failed to update patient: ${error.message}`);
+      throw error;
+    }
+  };
 
-  
+  const deletePatient = async (id: string) => {
+    if (!currentUser) {
+      toast.error("You must be logged in to delete a patient.");
+      throw new Error("User not authenticated");
+    }
+    try {
+      await patientService.delete(id);
+      setPatients(prevPatients => prevPatients.filter(patient => patient.id !== id));
+      toast.success('Patient deleted successfully!');
+    } catch (error: any) {
+      console.error("Error deleting patient:", error);
+      toast.error(`Failed to delete patient: ${error.message}`);
+      throw error;
+    }
+  };
+
+
   const getPatientById = (id: string) => {
-  // Primero intenta encontrarlo en el estado local
-  const localPatient = patients.find(patient => patient.id === id);
-  if (localPatient) {
-    return localPatient;
-  }
-  // Opcional: Si no se encuentra localmente, podrías intentar cargarlo desde el servicio
-  // console.warn(`Patient with id ${id} not found in local state.`);
-  // Podrías implementar una carga individual aquí si fuera necesario:
-  // const fetchSinglePatient = async () => {
-  //   const dbPatient = await patientService.getById(id);
-  //   if (dbPatient) setPatients(prev => [...prev, dbPatient]); // Añadirlo al estado
-  //   return dbPatient;
-  // };
-  // return fetchSinglePatient(); // Esto haría la función asíncrona
-  return undefined; // O simplemente retornar undefined si no está en el estado
-};
+    return patients.find(patient => patient.id === id);
+  };
+
+  const signOut = async () => {
+    toast.loading('Signing out...', { id: 'signout-toast' });
+    try {
+      await authService.signOut();
+      setCurrentUser(null);
+      // Limpiar estados de datos
+      setPatients([]);
+      setMedications([]);
+      setAppointments([]);
+      setVitalSigns([]);
+      setMedicationIntakes([]);
+      toast.dismiss('signout-toast');
+      toast.success('Signed out successfully!');
+    } catch (error: any) {
+      toast.dismiss('signout-toast');
+      console.error("Sign out error:", error);
+      toast.error(`Sign out failed: ${error.message}`);
+    }
+  };
 
   return (
     <AppContext.Provider
       value={{
+        currentUser,
+        loadingAuth,
         patients,
         medications,
         appointments,
         vitalSigns,
         medicationIntakes,
+        loadingData,
+        setCurrentUser, // Asegúrate que se pasa en el contexto
         addPatient,
-        addMedication,
-        addAppointment,
-        addVitalSign,
-        addMedicationIntake,
         updatePatient,
-        getPatientById
+        deletePatient,
+        getPatientById,
+        // ... otras funciones ...
+        signOut,
+        loadInitialData
       }}
     >
       {children}
