@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import MedicationCard from '../components/MedicationCard';
-import { Plus, Search, Pill as PillIcon, Calendar as CalendarIcon, Info } from 'lucide-react'; // Renombra iconos si es necesario
+import { Plus, Search, Pill as PillIcon, Calendar as CalendarIcon, Info, X } from 'lucide-react';
 import { Medication } from '../types'; // Importa el tipo Medication
 import toast from 'react-hot-toast';
 
