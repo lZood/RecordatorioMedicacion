@@ -13,6 +13,7 @@ import PatientDetails from './pages/PatientDetails';
 import { AppProvider } from './contexts/AppContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import MedicationDetails from './pages/MedicationDetails';
+import SignUp from './pages/SignUp';
 
 function App() {
   return (
@@ -21,7 +22,7 @@ function App() {
         <Toaster position="top-right" />
         <Routes>
           <Route path="/login" element={<Login />} />
-
+          <Route path="/signup" element={<SignUp />} />
           {/* Rutas protegidas comienzan aquí */}
           <Route element={<ProtectedRoute />}>
             {/* Layout principal para todas las rutas protegidas */}
