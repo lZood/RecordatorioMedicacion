@@ -44,19 +44,19 @@ const Medications: React.FC = () => {
         return;
     }
 
-    const medicationData: Omit<Medication, 'id'> = {
+    const medicationData: Omit<Medication, 'id'> = { // Medication (type) usa camelCase
       name: newMedName,
-      activeIngredient: newMedActiveIngredient, // Correcto para la conversión automática
-      expirationDate: newMedExpirationDate,   // Correcto para la conversión automática (a expiration_date)
+      activeIngredient: newMedActiveIngredient, // camelCase
+      expirationDate: newMedExpirationDate,   // camelCase
       description: newMedDescription || undefined,
     };
+    console.log("MedicationsPage: Enviando a AppContext (camelCase):", medicationData);
 
     try {
-      await addMedication(medicationData);
+      await addMedication(medicationData); // addMedication en AppContext recibe camelCase
       setShowAddMedicationModal(false);
       resetFormFields();
     } catch (error) {
-      // El toast de error ya se maneja en AppContext
       console.error("Failed to save medication from page:", error);
     }
   };
