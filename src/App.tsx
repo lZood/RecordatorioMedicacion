@@ -18,10 +18,10 @@ function App() {
       <Router>
         <Toaster position="top-right" />
         <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route element={<ProtectedRoute />}>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Dashboard />} />
+          <Route path="/login" element={<Login />} /> {/* Ruta de Login es pública */}
+          <Route element={<ProtectedRoute />}> {/* Rutas protegidas anidadas */}
+            <Route path="/" element={<Layout />}>
+              <Route index element={<Dashboard />} />
             <Route path="patients" element={<Patients />} />
             <Route path="patients/:id" element={<PatientDetails />} />
             <Route path="medications" element={<Medications />} />
