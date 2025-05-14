@@ -1,23 +1,21 @@
 // src/components/MedicationCard.tsx
 import React from 'react';
-import { Medication } from '../types'; // Tu tipo Medication sigue siendo camelCase, lo que es un poco inconsistente aquí
-import { Calendar, Info } from 'lucide-react';
+import { Medication } from '../types';
+import { Calendar, Info, Edit3, Eye } from 'lucide-react'; // Añade Eye para "View Details"
+import { Link, useNavigate } from 'react-router-dom'; // Importa Link y useNavigate
 
 interface MedicationCardProps {
-  // La prop 'medication' podría necesitar un tipo que refleje lo que realmente recibe (snake_case)
-  // o hacemos el acceso condicional en el JSX. Por ahora, mantendremos el tipo Medication
-  // y accederemos a las propiedades de forma que funcione.
-  medication: any; // Cambiado a 'any' temporalmente para evitar errores de tipo con snake_case
-                    // O podrías crear un tipo específico para la prop si siempre viene en snake_case
+  medication: any; // Sigue siendo 'any' por ahora debido al snake_case, o define un tipo apropiado
+  onEditClick: (medication: any) => void; // Función para manejar el clic en editar
 }
-
-const MedicationCard: React.FC<MedicationCardProps> = ({ medication }) => {
-  console.log("MedicationCard: Props recibidas - medication:", medication);
-
+const MedicationCard: React.FC<MedicationCardProps> = ({ medication, onEditClick }) => {
+  const navigate = useNavigate();
+  
   // Acceder a las propiedades usando snake_case como vienen del log
   const activeIngredient = medication.active_ingredient;
   const expirationDateString = medication.expiration_date; // String 'YYYY-MM-DD'
-
+  const activeIngredient = medication.active_ingredient;
+  const expirationDateString = medication.expiration_date;
   let displayExpirationDate = 'N/A';
   let daysUntilExpiration: number | null = null;
   let isExpiringSoon = false;
@@ -70,20 +68,21 @@ const MedicationCard: React.FC<MedicationCardProps> = ({ medication }) => {
 
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300">
+      {/* ... (Encabezado de la card) ... */}
       <div className="p-5 border-b border-gray-100">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-800">{medication.name}</h3>
-          <span className={`px-2 py-1 text-xs rounded-full ${statusColor}`}>
-            {statusText}
-          </span>
+          {/* ... (span de status) ... */}
         </div>
       </div>
 
+
       <div className="p-5 space-y-3">
+        {/* Active Ingredient */}
         {activeIngredient ? (
           <div className="flex items-center text-sm text-gray-600">
             <Info size={16} className="mr-2 text-gray-400 flex-shrink-0" />
-            <span>{activeIngredient}</span> {/* Usa la variable activeIngredient */}
+            <span>{activeIngredient}</span>
           </div>
         ) : (
           <div className="flex items-center text-sm text-gray-400">
@@ -91,16 +90,13 @@ const MedicationCard: React.FC<MedicationCardProps> = ({ medication }) => {
             <span>No active ingredient listed</span>
           </div>
         )}
-
+        {/* Expiration Date */}
         <div className="flex items-center text-sm text-gray-600">
           <Calendar size={16} className="mr-2 text-gray-400 flex-shrink-0" />
-          <span>
-            Expires: {displayExpirationDate}
-            {daysUntilExpiration !== null && !isExpired && isExpiringSoon && ` (${daysUntilExpiration} days left)`}
-            {isExpired && ' (Expired)'}
-          </span>
+          <span>Expires: {displayExpirationDate}</span>
+           {/* ... (info adicional de expiración) ... */}
         </div>
-
+        {/* Description */}
         {medication.description && (
           <p className="text-sm text-gray-600 mt-2 break-words">
             {medication.description}
@@ -108,12 +104,18 @@ const MedicationCard: React.FC<MedicationCardProps> = ({ medication }) => {
         )}
       </div>
 
-      <div className="bg-gray-50 px-5 py-3 flex justify-between">
-        <button className="text-indigo-600 text-sm font-medium hover:text-indigo-800 transition-colors duration-200">
-          View Details
-        </button>
-        <button className="text-gray-600 text-sm font-medium hover:text-gray-800 transition-colors duration-200">
-          Edit
+      <div className="bg-gray-50 px-5 py-3 flex justify-between items-center">
+        <Link
+          to={`/medications/${medication.id}`} // Navega a la página de detalles
+          className="flex items-center text-indigo-600 text-sm font-medium hover:text-indigo-800 transition-colors duration-200"
+        >
+          <Eye size={16} className="mr-1" /> View Details
+        </Link>
+        <button
+          onClick={() => onEditClick(medication)} // Llama a la función pasada por props
+          className="flex items-center text-gray-600 text-sm font-medium hover:text-gray-800 transition-colors duration-200"
+        >
+          <Edit3 size={16} className="mr-1" /> Edit
         </button>
       </div>
     </div>
