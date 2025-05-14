@@ -4,7 +4,6 @@ import { Patient, Medication, Appointment, VitalSign, MedicationIntake } from '.
 import { User, Subscription } from '@supabase/supabase-js'; // Importa Subscription
 import { supabase } from '../lib/supabase'; // Cliente Supabase
 import { patientService } from '../services/patients';
-import { Medication } from '../types';
 import { medicationService } from '../services/medications';
 import { appointmentService } from '../services/appointments';
 import { vitalSignService } from '../services/vitalSigns';
