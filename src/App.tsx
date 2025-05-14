@@ -12,6 +12,7 @@ import Layout from './components/Layout';
 import PatientDetails from './pages/PatientDetails';
 import { AppProvider } from './contexts/AppContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import MedicationDetails from './pages/MedicationDetails';
 
 function App() {
   return (
