@@ -18,17 +18,24 @@ function App() {
       <Router>
         <Toaster position="top-right" />
         <Routes>
-          <Route path="/login" element={<Login />} /> {/* Ruta de Login es pública */}
-          <Route element={<ProtectedRoute />}> {/* Rutas protegidas anidadas */}
+          <Route path="/login" element={<Login />} />
+
+          {/* Rutas protegidas comienzan aquí */}
+          <Route element={<ProtectedRoute />}>
+            {/* Layout principal para todas las rutas protegidas */}
             <Route path="/" element={<Layout />}>
+              {/* Rutas hijas que se renderizarán dentro del Outlet del Layout */}
               <Route index element={<Dashboard />} />
-            <Route path="patients" element={<Patients />} />
-            <Route path="patients/:id" element={<PatientDetails />} />
-            <Route path="medications" element={<Medications />} />
-            <Route path="appointments" element={<Appointments />} />
-            <Route path="vitals" element={<VitalSigns />} />
-            <Route path="reports" element={<Reports />} />
-          </Route>
+              <Route path="patients" element={<Patients />} />
+              <Route path="patients/:id" element={<PatientDetails />} />
+              <Route path="medications" element={<Medications />} />
+              <Route path="appointments" element={<Appointments />} />
+              <Route path="vitals" element={<VitalSigns />} />
+              <Route path="reports" element={<Reports />} />
+              {/* Otras rutas protegidas dentro de Layout pueden ir aquí */}
+            </Route> {/* Cierre de la ruta del Layout */}
+          </Route> {/* Cierre de la ruta protegida principal */}
+
         </Routes>
       </Router>
     </AppProvider>
