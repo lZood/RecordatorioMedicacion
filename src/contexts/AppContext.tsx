@@ -38,12 +38,12 @@ interface AppContextType {
   deleteAppointment: (id: string) => Promise<void>;
   getAppointmentById: (id: string) => Appointment | undefined;
 
-  vitalSigns: VitalSign[]; // Estado para vitalSigns
-  loadingVitalSigns: boolean; // Estado de carga para vitalSigns
+  vitalSigns: VitalSign[];
+  loadingVitalSigns: boolean;
   addVitalSign: (vitalSignData: Omit<VitalSign, 'id'>) => Promise<VitalSign | undefined>;
   updateVitalSign: (id: string, vitalSignUpdateData: Partial<Omit<VitalSign, 'id'>>) => Promise<void>;
   deleteVitalSign: (id: string) => Promise<void>;
-  getVitalSignsByPatientId: (patientId: string) => Promise<VitalSign[]>; // Para cargar por paciente si es necesario
+  getVitalSignsByPatientId: (patientId: string) => Promise<VitalSign[]>;
 
   medicationIntakes: MedicationIntake[];
   
@@ -63,12 +63,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [medications, setMedications] = useState<Medication[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]); // Inicializa estado
+  const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
   const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntake[]>([]);
 
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [loadingDoctors, setLoadingDoctors] = useState(false);
-  const [loadingVitalSigns, setLoadingVitalSigns] = useState(false); // Estado de carga
+  const [loadingVitalSigns, setLoadingVitalSigns] = useState(false);
 
   const loadInitialData = async (userOverride?: User | null) => {
     const userToUse = userOverride !== undefined ? userOverride : currentUser;
@@ -79,32 +79,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setMedications([]);
       setAppointments([]);
       setDoctors([]);
-      setVitalSigns([]); // Limpiar vitalSigns
+      setVitalSigns([]);
       setMedicationIntakes([]);
       setLoadingData(false);
       setLoadingAppointments(false);
       setLoadingDoctors(false);
-      setLoadingVitalSigns(false); // Limpiar estado de carga
+      setLoadingVitalSigns(false);
       return;
     }
     console.log("AppContext: Loading initial data for user:", userToUse.id);
     setLoadingData(true);
     setLoadingAppointments(true);
     setLoadingDoctors(true);
-    setLoadingVitalSigns(true); // Activar estado de carga
+    setLoadingVitalSigns(true);
     try {
       const [
         patientsData,
         medicationsData,
         appointmentsData,
-        vitalSignsData, // Destructurar vitalSignsData
+        vitalSignsData,
         medicationIntakesData,
         doctorsData,
       ] = await Promise.all([
         patientService.getAll(),
         medicationService.getAll(),
         appointmentService.getAll(),
-        vitalSignService.getAll(), // Llamar al servicio de vital signs
+        vitalSignService.getAll(),
         medicationIntakeService.getAll(),
         profileService.getAllDoctors(),
       ]);
@@ -112,7 +112,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setPatients(patientsData || []);
       setMedications(medicationsData || []);
       setAppointments(appointmentsData || []);
-      setVitalSigns(vitalSignsData || []); // Establecer estado de vital signs
+      setVitalSigns(vitalSignsData || []);
       setMedicationIntakes(medicationIntakesData || []);
       setDoctors(doctorsData || []);
 
@@ -123,11 +123,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setLoadingData(false);
       setLoadingAppointments(false);
       setLoadingDoctors(false);
-      setLoadingVitalSigns(false); // Desactivar estado de carga
+      setLoadingVitalSigns(false);
     }
   };
   
-  // ... (useEffect para auth) ...
   useEffect(() => {
     setLoadingAuth(true);
     let subscription: Subscription | undefined;
@@ -159,46 +158,91 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, []);
 
-
-  // --- CRUD Pacientes (existente) ---
+  // --- CRUD Pacientes ---
   const addPatient = async (patientData: Omit<Patient, 'id' | 'createdAt'>) => {
     if (!currentUser) { toast.error("Auth required"); throw new Error("User not authenticated"); }
-    const newPatient = await patientService.create(patientData);
-    if (newPatient) setPatients(prev => [...prev, newPatient].sort((a,b) => a.name.localeCompare(b.name)));
-    return newPatient;
+    try {
+        const newPatient = await patientService.create(patientData);
+        if (newPatient) {
+            setPatients(prev => [...prev, newPatient].sort((a,b) => a.name.localeCompare(b.name)));
+            toast.success('Patient added successfully!');
+            return newPatient;
+        }
+    } catch (error: any) {
+        toast.error(`Failed to add patient: ${error.message}`);
+        throw error;
+    }
+    return undefined;
   };
   const updatePatient = async (id: string, updatedData: Partial<Patient>) => {
     if (!currentUser) { toast.error("Auth required"); throw new Error("User not authenticated"); }
-    const updated = await patientService.update(id, updatedData);
-    if (updated) setPatients(prev => prev.map(p => p.id === id ? {...p, ...updated} : p).sort((a,b) => a.name.localeCompare(b.name)));
+    try {
+        const updated = await patientService.update(id, updatedData);
+        if (updated) {
+            setPatients(prev => prev.map(p => p.id === id ? {...p, ...updated} : p).sort((a,b) => a.name.localeCompare(b.name)));
+            toast.success('Patient updated successfully!');
+        }
+    } catch (error: any) {
+        toast.error(`Failed to update patient: ${error.message}`);
+        throw error;
+    }
   };
   const deletePatient = async (id: string) => {
     if (!currentUser) { toast.error("Auth required"); throw new Error("User not authenticated"); }
-    await patientService.delete(id);
-    setPatients(prev => prev.filter(p => p.id !== id));
+    try {
+        await patientService.delete(id);
+        setPatients(prev => prev.filter(p => p.id !== id));
+        toast.success('Patient deleted successfully!');
+    } catch (error: any) {
+        toast.error(`Failed to delete patient: ${error.message}`);
+        throw error;
+    }
   };
   const getPatientById = (id: string) => patients.find(p => p.id === id);
 
-  // --- CRUD Medicamentos (existente) ---
+  // --- CRUD Medicamentos ---
   const addMedication = async (medData: Omit<Medication, 'id'>) => {
     if (!currentUser) { toast.error("Auth required"); throw new Error("User not authenticated"); }
-    const newMed = await medicationService.create(medData);
-    if (newMed) setMedications(prev => [...prev, newMed].sort((a,b) => a.name.localeCompare(b.name)));
-    return newMed;
+    try {
+        const newMed = await medicationService.create(medData);
+        if (newMed) {
+            setMedications(prev => [...prev, newMed].sort((a,b) => a.name.localeCompare(b.name)));
+            toast.success('Medication added successfully!');
+            return newMed;
+        }
+    } catch (error: any) {
+        toast.error(`Failed to add medication: ${error.message}`);
+        throw error;
+    }
+    return undefined;
   };
   const updateMedication = async (id: string, updatedData: Partial<Medication>) => {
     if (!currentUser) { toast.error("Auth required"); throw new Error("User not authenticated"); }
-    const updated = await medicationService.update(id, updatedData);
-    if (updated) setMedications(prev => prev.map(m => m.id === id ? {...m, ...updated} : m).sort((a,b) => a.name.localeCompare(b.name)));
+    try {
+        const updated = await medicationService.update(id, updatedData);
+        if (updated) {
+            setMedications(prev => prev.map(m => m.id === id ? {...m, ...updated} : m).sort((a,b) => a.name.localeCompare(b.name)));
+            toast.success('Medication updated successfully!');
+        }
+    } catch (error: any) {
+        toast.error(`Failed to update medication: ${error.message}`);
+        throw error;
+    }
   };
   const deleteMedication = async (id: string) => {
     if (!currentUser) { toast.error("Auth required"); throw new Error("User not authenticated"); }
-    await medicationService.delete(id);
-    setMedications(prev => prev.filter(m => m.id !== id));
+    try {
+        await medicationService.delete(id);
+        setMedications(prev => prev.filter(m => m.id !== id));
+        toast.success('Medication deleted successfully!');
+    } catch (error: any) {
+        toast.error(`Failed to delete medication: ${error.message}`);
+        throw error;
+    }
   };
   const getMedicationById = (id: string) => medications.find(m => m.id === id);
 
-  // --- CRUD Citas (Appointments) (existente) ---
+  // --- CRUD Citas (Appointments) ---
   const addAppointment = async (appointmentData: Omit<Appointment, 'id'>): Promise<Appointment | undefined> => {
     if (!currentUser) { toast.error("Auth required"); throw new Error("User not authenticated"); }
     try {
@@ -229,7 +273,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
          } else {
             setAppointments(prev => prev.map(app => (app.id === id ? {...app, ...updatedApp} : app)).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
          }
-        // toast.success('Appointment updated!'); // Ya se maneja en la página de detalles
+        // toast.success('Appointment updated!'); // Se maneja en la página de detalles si es necesario
       }
     } catch (error: any) { toast.error(`Failed to update: ${error.message}`); throw error; }
   };
@@ -238,25 +282,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       await appointmentService.delete(id);
       setAppointments(prev => prev.filter(app => app.id !== id));
-      // toast.success('Appointment deleted!'); // Ya se maneja en la página de detalles
+      // toast.success('Appointment deleted!'); // Se maneja en la página de detalles si es necesario
     } catch (error: any) { toast.error(`Failed to delete: ${error.message}`); throw error; }
   };
   const getAppointmentById = (id: string) => appointments.find(app => app.id === id);
 
-
   // --- CRUD para Signos Vitales (VitalSigns) ---
   const addVitalSign = async (vitalSignData: Omit<VitalSign, 'id'>): Promise<VitalSign | undefined> => {
-    if (!currentUser) { toast.error("Auth required"); throw new Error("User not authenticated"); }
+    if (!currentUser) { 
+      toast.error("Authentication required to record vital sign."); 
+      throw new Error("User not authenticated"); 
+    }
     try {
-      const newVitalSign = await vitalSignService.create(vitalSignData);
-      if (newVitalSign) {
-        setVitalSigns(prev => [...prev, newVitalSign].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time) )); // Ordenar por más reciente
+      console.log("AppContext: Calling vitalSignService.create with:", vitalSignData);
+      const newVitalSign = await vitalSignService.create(vitalSignData); // vitalSignData es camelCase
+      console.log("AppContext: Received from vitalSignService.create:", newVitalSign);
+      if (newVitalSign) { // newVitalSign debería ser camelCase del servicio
+        setVitalSigns(prev => [...prev, newVitalSign].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time) ));
         toast.success('Vital sign recorded successfully!');
         return newVitalSign;
       }
     } catch (error: any) {
-      toast.error(`Failed to record vital sign: ${error.message}`);
-      throw error;
+      console.error("AppContext: Error recording vital sign:", error);
+      toast.error(`Failed to record vital sign: ${error.message || 'Unknown error'}`);
+      throw error; // Relanza para que el componente lo pueda manejar si es necesario
     }
     return undefined;
   };
@@ -289,15 +338,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
   
   const getVitalSignsByPatientId = async (patientId: string): Promise<VitalSign[]> => {
-    // Esta función podría cargar directamente del servicio y no necesariamente actualizar el estado global 'vitalSigns'
-    // o podría actualizar un subconjunto del estado global si se desea.
-    // Por ahora, la mantenemos simple y que la página VitalSigns filtre del estado global 'vitalSigns'.
-    // Si se necesita una carga bajo demanda por paciente sin afectar el estado global, se puede modificar.
     if (!currentUser) { toast.error("Auth required"); throw new Error("User not authenticated"); }
     try {
         setLoadingVitalSigns(true);
         const patientVitalSigns = await vitalSignService.getByPatient(patientId);
-        // Opcional: podrías fusionar esto con el estado global 'vitalSigns' o manejarlo por separado.
         return patientVitalSigns;
     } catch (error: any) {
         toast.error(`Failed to get vital signs for patient: ${error.message}`);
@@ -306,7 +350,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setLoadingVitalSigns(false);
     }
   };
-
 
   const signOut = async () => {
     toast.loading('Signing out...', { id: 'signout-toast' });
