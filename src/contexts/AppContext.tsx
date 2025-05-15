@@ -77,12 +77,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         appointmentService.getAll(),
         vitalSignService.getAll(),
         medicationIntakeService.getAll(),
+        profileService.getAllDoctors(),
       ]);
       setPatients(patientsData || []);
       setMedications(medicationsData || []);
       setAppointments(appointmentsData || []);
       setVitalSigns(vitalSignsData || []);
       setMedicationIntakes(medicationIntakesData || []);
+      setDoctors(doctorsData || []);
     } catch (error) {
       console.error("Error loading initial data:", error);
       toast.error("Could not load app data.");
