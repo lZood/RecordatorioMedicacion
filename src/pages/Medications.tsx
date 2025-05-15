@@ -3,15 +3,15 @@ import React, { useState } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import MedicationCard from '../components/MedicationCard';
 import { Plus, Search, Pill as PillIcon, Calendar as CalendarIcon, Info, X, Edit3 } from 'lucide-react';
-import { Medication } from '../types';
+import { Medication } from '../types'; // Medication type ahora tiene doctorId: string
 import toast from 'react-hot-toast';
 
 const Medications: React.FC = () => {
   const { 
     medications = [], 
     addMedication, 
-    updateMedication, // Para el modal de edición
-    deleteMedication, // Para el modal de edición o card
+    updateMedication,
+    deleteMedication,
     loadingData, 
     loadingProfile, 
     currentUser, 
@@ -21,15 +21,13 @@ const Medications: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   
-  // Estados para el formulario de "Añadir"
   const [newMedName, setNewMedName] = useState('');
   const [newMedActiveIngredient, setNewMedActiveIngredient] = useState('');
   const [newMedExpirationDate, setNewMedExpirationDate] = useState('');
   const [newMedDescription, setNewMedDescription] = useState('');
   
-  // Estados para el formulario de "Editar"
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editingMed, setEditingMed] = useState<Medication | null>(null);
+  const [editingMed, setEditingMed] = useState<Medication | null>(null); // Usa el tipo Medication
   const [editMedName, setEditMedName] = useState('');
   const [editMedActiveIngredient, setEditMedActiveIngredient] = useState('');
   const [editMedExpirationDate, setEditMedExpirationDate] = useState('');
@@ -37,7 +35,6 @@ const Medications: React.FC = () => {
 
   const [formSubmitting, setFormSubmitting] = useState(false);
 
-  // La lista 'medications' ya viene filtrada por RLS si el usuario es un doctor.
   const filteredMedications = medications.filter(medication =>
     medication.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (medication.activeIngredient && medication.activeIngredient.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -67,7 +64,9 @@ const Medications: React.FC = () => {
       toast.error("Expiration Date must be in YYYY-MM-DD format."); return;
     }
     setFormSubmitting(true);
-    // doctorId se añadirá en AppContext.addMedication
+    // El tipo de medicationData que se pasa a AppContext.addMedication es:
+    // Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>
+    // AppContext.addMedication se encargará de añadir el doctorId.
     const medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'> = {
       name: newMedName.trim(),
       activeIngredient: newMedActiveIngredient.trim(),
@@ -77,15 +76,19 @@ const Medications: React.FC = () => {
     try {
       await addMedication(medicationData);
       setShowAddModal(false);
-    } catch (error) { console.error("MedicationsPage: Error saving new medication:", error); }
+      // resetAddForm(); // El modal se cierra, el reseteo puede ser opcional o al reabrir
+    } catch (error) { 
+      console.error("MedicationsPage: Error saving new medication:", error); 
+      // El toast de error ya se maneja en AppContext
+    }
     finally { setFormSubmitting(false); }
   };
 
-  const handleOpenEditModal = (med: Medication) => {
+  const handleOpenEditModal = (med: Medication) => { // med es de tipo Medication (con doctorId)
     setEditingMed(med);
     setEditMedName(med.name);
     setEditMedActiveIngredient(med.activeIngredient);
-    setEditMedExpirationDate(med.expirationDate); // Asume YYYY-MM-DD
+    setEditMedExpirationDate(med.expirationDate);
     setEditMedDescription(med.description || '');
     setShowEditModal(true);
   };
@@ -102,6 +105,8 @@ const Medications: React.FC = () => {
       toast.error("Expiration Date must be in YYYY-MM-DD format."); return;
     }
     setFormSubmitting(true);
+    // Para updateMedication, no pasamos doctorId, ya que no se debe cambiar.
+    // El servicio y RLS se aseguran que solo el dueño pueda editar.
     const updatedData: Partial<Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>> = {
       name: editMedName.trim(),
       activeIngredient: editMedActiveIngredient.trim(),
@@ -127,6 +132,7 @@ const Medications: React.FC = () => {
     }
   };
   
+  // ... (Lógica de renderizado condicional y JSX como en el Canvas medications_page_user_specific)
   if ((loadingData && !medications.length) || (currentUser && loadingProfile && !userProfile)) {
     return <div className="flex justify-center items-center h-screen"><div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent border-solid rounded-full animate-spin"></div><p className="ml-4 text-lg">Loading data...</p></div>;
   }
@@ -157,9 +163,6 @@ const Medications: React.FC = () => {
         )}
       </div>
 
-      {/* Medication Status Filters (opcional) */}
-      {/* <div className="flex flex-wrap gap-3"> ... </div> */}
-
       {loadingData && medications.length === 0 && userProfile?.role === 'doctor' ? (
          <div className="text-center py-12"><p className="text-gray-500 text-lg">Loading medications...</p></div>
       ) : filteredMedications.length > 0 && userProfile?.role === 'doctor' ? (
@@ -169,7 +172,7 @@ const Medications: React.FC = () => {
                 key={med.id} 
                 medication={med} 
                 onEditClick={() => handleOpenEditModal(med)}
-                onDeleteClick={() => handleDeleteMedication(med.id)} // Pasar onDeleteClick
+                onDeleteClick={() => handleDeleteMedication(med.id)}
             />
           ))}
         </div>
@@ -193,23 +196,23 @@ const Medications: React.FC = () => {
             <form className="space-y-4" onSubmit={handleSaveNewMedication}>
               <div>
                 <label htmlFor="newMedName" className="block text-sm font-medium text-gray-700 mb-1 flex items-center"><PillIcon size={16} className="mr-2 text-gray-400" /> Name</label>
-                <input type="text" id="newMedName" value={newMedName} onChange={(e) => setNewMedName(e.target.value)} required className="w-full input-style"/>
+                <input type="text" id="newMedName" value={newMedName} onChange={(e) => setNewMedName(e.target.value)} required className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
               </div>
               <div>
                 <label htmlFor="newMedActiveIngredient" className="block text-sm font-medium text-gray-700 mb-1 flex items-center"><Info size={16} className="mr-2 text-gray-400" /> Active Ingredient</label>
-                <input type="text" id="newMedActiveIngredient" value={newMedActiveIngredient} onChange={(e) => setNewMedActiveIngredient(e.target.value)} required className="w-full input-style"/>
+                <input type="text" id="newMedActiveIngredient" value={newMedActiveIngredient} onChange={(e) => setNewMedActiveIngredient(e.target.value)} required className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
               </div>
               <div>
                 <label htmlFor="newMedExpirationDate" className="block text-sm font-medium text-gray-700 mb-1 flex items-center"><CalendarIcon size={16} className="mr-2 text-gray-400" /> Expiration Date</label>
-                <input type="date" id="newMedExpirationDate" value={newMedExpirationDate} onChange={(e) => setNewMedExpirationDate(e.target.value)} required className="w-full input-style"/>
+                <input type="date" id="newMedExpirationDate" value={newMedExpirationDate} onChange={(e) => setNewMedExpirationDate(e.target.value)} required className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
               </div>
               <div>
                 <label htmlFor="newMedDescription" className="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
-                <textarea id="newMedDescription" value={newMedDescription} onChange={(e) => setNewMedDescription(e.target.value)} rows={3} className="w-full input-style"/>
+                <textarea id="newMedDescription" value={newMedDescription} onChange={(e) => setNewMedDescription(e.target.value)} rows={3} className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
               </div>
               <div className="flex justify-end gap-3 pt-4">
-                <button type="button" onClick={() => setShowAddModal(false)} className="btn-secondary" disabled={formSubmitting}>Cancel</button>
-                <button type="submit" className="btn-primary" disabled={formSubmitting}>{formSubmitting ? "Saving..." : "Save Medication"}</button>
+                <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50" disabled={formSubmitting}>Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-400" disabled={formSubmitting}>{formSubmitting ? "Saving..." : "Save Medication"}</button>
               </div>
             </form>
           </div>
@@ -222,28 +225,28 @@ const Medications: React.FC = () => {
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold text-gray-800">Edit Medication</h2>
-                <button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
+                <button onClick={() => {setShowEditModal(false); setEditingMed(null);}} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
             </div>
             <form className="space-y-4" onSubmit={handleSaveEditMedication}>
               <div>
                 <label htmlFor="editMedName" className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <input type="text" id="editMedName" value={editMedName} onChange={(e) => setEditMedName(e.target.value)} required className="w-full input-style"/>
+                <input type="text" id="editMedName" value={editMedName} onChange={(e) => setEditMedName(e.target.value)} required className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
               </div>
               <div>
                 <label htmlFor="editMedActiveIngredient" className="block text-sm font-medium text-gray-700 mb-1">Active Ingredient</label>
-                <input type="text" id="editMedActiveIngredient" value={editMedActiveIngredient} onChange={(e) => setEditMedActiveIngredient(e.target.value)} required className="w-full input-style"/>
+                <input type="text" id="editMedActiveIngredient" value={editMedActiveIngredient} onChange={(e) => setEditMedActiveIngredient(e.target.value)} required className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
               </div>
               <div>
                 <label htmlFor="editMedExpirationDate" className="block text-sm font-medium text-gray-700 mb-1">Expiration Date</label>
-                <input type="date" id="editMedExpirationDate" value={editMedExpirationDate} onChange={(e) => setEditMedExpirationDate(e.target.value)} required className="w-full input-style"/>
+                <input type="date" id="editMedExpirationDate" value={editMedExpirationDate} onChange={(e) => setEditMedExpirationDate(e.target.value)} required className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
               </div>
               <div>
                 <label htmlFor="editMedDescription" className="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
-                <textarea id="editMedDescription" value={editMedDescription} onChange={(e) => setEditMedDescription(e.target.value)} rows={3} className="w-full input-style"/>
+                <textarea id="editMedDescription" value={editMedDescription} onChange={(e) => setEditMedDescription(e.target.value)} rows={3} className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
               </div>
               <div className="flex justify-end gap-3 pt-4">
-                <button type="button" onClick={() => setShowEditModal(false)} className="btn-secondary" disabled={formSubmitting}>Cancel</button>
-                <button type="submit" className="btn-primary" disabled={formSubmitting}>{formSubmitting ? "Saving..." : "Save Changes"}</button>
+                <button type="button" onClick={() => {setShowEditModal(false); setEditingMed(null);}} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50" disabled={formSubmitting}>Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-400" disabled={formSubmitting}>{formSubmitting ? "Saving..." : "Save Changes"}</button>
               </div>
             </form>
           </div>
@@ -252,11 +255,5 @@ const Medications: React.FC = () => {
     </div>
   );
 };
-
-// Define some base styles for inputs and buttons if you haven't already in index.css
-// e.g., in index.css or a global style sheet:
-// .input-style { @apply w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm; }
-// .btn-primary { @apply px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-400; }
-// .btn-secondary { @apply px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:bg-gray-200; }
 
 export default Medications;
