@@ -13,6 +13,7 @@ import PatientDetails from './pages/PatientDetails';
 import { AppProvider } from './contexts/AppContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import MedicationDetails from './pages/MedicationDetails';
+import AppointmentDetails from './pages/AppointmentDetails';
 import SignUp from './pages/SignUp';
 
 function App() {
@@ -34,6 +35,7 @@ function App() {
               <Route path="medications" element={<Medications />} />
               <Route path="medications/:id" element={<MedicationDetails />} />
               <Route path="appointments" element={<Appointments />} />
+              <Route path="appointments/:id" element={<AppointmentDetails />} />
               <Route path="vitals" element={<VitalSigns />} />
               <Route path="reports" element={<Reports />} />
               {/* Otras rutas protegidas dentro de Layout pueden ir aquí */}
