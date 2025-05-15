@@ -2,20 +2,19 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Activity, Lock, User as UserIcon, Briefcase, Mail } from 'lucide-react';
-import { authService } from '../services/auth';
+import { authService, ExtendedSignUpCredentials } from '../services/auth';
 import toast from 'react-hot-toast';
-import { useAppContext } from '../contexts/AppContext';
+// El AppContext no se usa directamente aquí para setCurrentUser o loadInitialData
+// ya que onAuthStateChange en AppContext se encargará de eso.
 
 const SignUp: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [name, setName] = useState(''); // Para el perfil del doctor
-  const [specialty, setSpecialty] = useState(''); // Para el perfil del doctor
+  const [name, setName] = useState('');
+  const [specialty, setSpecialty] = useState(''); // Campo obligatorio para doctores
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-  const { setCurrentUser, loadInitialData } = useAppContext();
-
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,50 +22,57 @@ const SignUp: React.FC = () => {
       toast.error("Passwords do not match.");
       return;
     }
-    if (!name.trim() || !specialty.trim()) {
-        toast.error("Name and specialty are required.");
+    // Nombre y especialidad son requeridos para el registro de doctores en la web
+    if (!name.trim() || !specialty.trim() || !email.trim()) {
+        toast.error("Full Name, Specialty, and Email are required.");
         return;
     }
 
     setIsLoading(true);
-    toast.loading('Creating account...', { id: 'signup-toast' });
+    const toastId = toast.loading('Creating doctor account...');
+
+    const credentials: ExtendedSignUpCredentials = {
+      email,
+      password,
+      options: {
+        data: {
+          name: name.trim(),
+          specialty: specialty.trim(),
+          role: 'doctor', // Rol asignado automáticamente a 'doctor'
+        }
+      }
+    };
 
     try {
-      const result = await authService.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name: name.trim(),
-            specialty: specialty.trim(),
-          }
-        }
-      });
-    toast.dismiss('signup-toast');
-    
-    if (result.error) {
-      console.error("SignUp.tsx: authService.signUp error:", result.error);
-      throw result.error; // Para que el catch general lo maneje
-    }
-    
-    // El trigger en Supabase debería haber creado el perfil.
-    // onAuthStateChange en AppContext debería manejar el estado SIGNED_IN.
-    if (result.user) {
-      toast.success(result.session ? 'Account created successfully! Logged in.' : 'Account created! Please check your email to confirm.');
-      if (result.session) { // Si hay sesión (ej. auto-confirm o ya confirmado)
-          navigate('/');
-      } else {
-          // Si se requiere confirmación por email, el usuario no tendrá sesión inmediatamente.
-          navigate('/login', { state: { message: "Please check your email to confirm your account." } });
+      const result = await authService.signUp(credentials);
+      toast.dismiss(toastId);
+
+      if (result.error) {
+        console.error("SignUp.tsx: authService.signUp error:", result.error);
+        throw result.error;
       }
-    } else {
-      // Este caso es si Supabase devuelve éxito pero sin objeto user, lo cual es raro.
-      toast.error('Sign up completed, but no user data returned. Please try logging in or check email.');
-      navigate('/login');
-    }
+      
+      if (result.user) {
+        // El trigger en Supabase (handle_new_user) usará el rol 'doctor' de options.data
+        toast.success(result.session ? 'Doctor account created! Logged in.' : 'Doctor account created! Please check your email to confirm.');
+        if (result.session) {
+            navigate('/'); // onAuthStateChange en AppContext se encargará de cargar datos
+        } else {
+            // Mostrar mensaje para revisar email y redirigir a login
+            navigate('/login', { 
+              state: { 
+                message: "Doctor account created! Please check your email to confirm your account before logging in." 
+              } 
+            });
+        }
+      } else {
+        // Este caso es si Supabase devuelve éxito pero sin objeto user
+        toast.error('Sign up completed, but no user data returned. Please try logging in or check email.');
+        navigate('/login');
+      }
 
     } catch (error: any) {
-      toast.dismiss('signup-toast');
+      toast.dismiss(toastId);
       console.error("Sign up error:", error);
       toast.error(error.message || 'Sign up failed. Please try again.');
     } finally {
@@ -85,10 +91,10 @@ const SignUp: React.FC = () => {
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Create Doctor Account
         </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Or{' '}
+         <p className="mt-2 text-center text-sm text-gray-600">
+          Already have an account?{' '}
           <Link to="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
-            sign in to your existing account
+            Sign in
           </Link>
         </p>
       </div>
@@ -96,6 +102,7 @@ const SignUp: React.FC = () => {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit}>
+            {/* No hay selector de rol, se asume 'doctor' */}
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700">Full Name</label>
               <div className="mt-1 relative rounded-md shadow-sm">
@@ -128,7 +135,7 @@ const SignUp: React.FC = () => {
                 </div>
                 <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)}
                        className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                       placeholder="you@example.com"/>
+                       placeholder="doctor@example.com"/>
               </div>
             </div>
 
@@ -161,7 +168,7 @@ const SignUp: React.FC = () => {
                       className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
                         isLoading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
                       } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}>
-                {isLoading ? 'Creating Account...' : 'Create Account'}
+                {isLoading ? 'Creating Account...' : 'Create Doctor Account'}
               </button>
             </div>
           </form>
