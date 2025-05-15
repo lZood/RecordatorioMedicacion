@@ -5,7 +5,7 @@ import { SignUpWithPasswordCredentials, SignInWithPasswordCredentials, User, Ses
 interface SignUpOptionsData {
   name?: string;
   specialty?: string;
-  role?: 'doctor' | 'patient' | string; // El rol que se pasará
+  role?: 'doctor' | 'patient' | string;
   [key: string]: any;
 }
 
@@ -37,7 +37,7 @@ export const authService = {
       const missingDataError: AuthError = {
         name: 'AuthMissingDataError',
         message: 'Sign in successful but no user or session data returned.',
-        status: 500, // O un código de estado apropiado
+        status: 500,
       };
       return { user: null, session: null, error: missingDataError };
     }
@@ -50,7 +50,6 @@ export const authService = {
     const dataForMetaData = options.data || {};
 
     // Para la aplicación web de doctores, el rol siempre será 'doctor'
-    // y la especialidad debería venir de la página de SignUp.
     const finalMetaData: SignUpOptionsData = {
       ...dataForMetaData, // Incluye name, specialty pasados desde SignUp.tsx
       role: 'doctor',    // Forzar rol 'doctor' para registros desde la web
