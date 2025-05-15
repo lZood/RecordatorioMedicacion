@@ -9,8 +9,7 @@ const mapMedicationToDb = (medicationData: Partial<Omit<Medication, 'id' | 'crea
   if (medicationData.activeIngredient !== undefined) dbData.active_ingredient = medicationData.activeIngredient;
   if (medicationData.expirationDate !== undefined) dbData.expiration_date = medicationData.expirationDate;
   if (medicationData.description !== undefined) dbData.description = medicationData.description ?? null;
-  if (medicationData.doctorId !== undefined) dbData.doctor_id = medicationData.doctorId; // Mapear doctorId
-  // createdAt y updatedAt son manejados por la DB
+  if (medicationData.doctorId !== undefined) dbData.doctor_id = medicationData.doctorId;
   return dbData;
 };
 
@@ -23,26 +22,30 @@ const mapDbToMedication = (dbRecord: any): Medication | null => {
     activeIngredient: dbRecord.active_ingredient,
     expirationDate: dbRecord.expiration_date,
     description: dbRecord.description,
-    doctorId: dbRecord.doctor_id, // Mapear doctor_id
+    doctorId: dbRecord.doctor_id, // doctorId is now expected to be non-null from DB for a valid medication
     createdAt: dbRecord.created_at,
     updatedAt: dbRecord.updated_at,
   };
 };
 
 export const medicationService = {
+  // The type Omit<Medication, 'id' | 'createdAt' | 'updatedAt'> now implies doctorId is required
+  // because Medication has doctorId: string (non-optional)
   async create(medicationDataFromApp: Omit<Medication, 'id' | 'createdAt' | 'updatedAt'>): Promise<Medication | null> {
-    // medicationDataFromApp DEBE incluir doctorId, que se añade en AppContext
-    if (!medicationDataFromApp.doctorId) {
-      console.error("medicationService.create: doctorId is missing.");
-      throw new Error("doctorId is required to create a medication.");
-    }
-    const dataToInsert = mapMedicationToDb(medicationDataFromApp);
+    // The explicit check for doctorId can be removed if TypeScript enforces it,
+    // but it's a good safeguard if types are ever loosened.
+    // For now, with doctorId: string in Medication type, this check is redundant if TS is respected.
+    // if (!medicationDataFromApp.doctorId) {
+    //   console.error("medicationService.create: doctorId is missing.");
+    //   throw new Error("doctorId is required to create a medication.");
+    // }
+    const dataToInsert = mapMedicationToDb(medicationDataFromApp); // medicationDataFromApp now must have doctorId
     console.log("medicationService: Insertando medicamento (snake_case):", dataToInsert);
 
     const { data, error } = await supabase
       .from('medications')
       .insert(dataToInsert)
-      .select() // Debería devolver camelCase si el cliente está configurado por defecto
+      .select()
       .single();
       
     if (error) {
@@ -54,11 +57,10 @@ export const medicationService = {
   },
 
   async getAll(): Promise<Medication[]> {
-    // RLS se encargará de filtrar por doctor_id = auth.uid()
     console.log("medicationService.getAll: Fetching medications (RLS will filter)...");
     const { data, error } = await supabase
       .from('medications')
-      .select('*') // El cliente Supabase debería convertir a camelCase
+      .select('*')
       .order('name', { ascending: true });
       
     if (error) {
@@ -69,7 +71,6 @@ export const medicationService = {
   },
 
   async getById(id: string): Promise<Medication | null> {
-    // RLS se encargará de filtrar
     const { data, error } = await supabase
       .from('medications')
       .select('*')
@@ -77,18 +78,18 @@ export const medicationService = {
       .single();
       
     if (error) {
-      if (error.code === 'PGRST116') return null; // No encontrado
+      if (error.code === 'PGRST116') return null;
       console.error(`medicationService.getById: Error obteniendo medicamento por ID ${id}:`, error);
       throw error;
     }
     return data ? mapDbToMedication(data) : null;
   },
 
-  async update(id: string, medicationUpdateData: Partial<Omit<Medication, 'id' | 'createdAt' | 'updatedAt' | 'doctorId'>>): Promise<Medication | null> {
-    // RLS se encargará de verificar que el doctor solo actualice sus medicamentos.
-    // No se permite cambiar doctorId aquí.
+  // For update, doctorId is not part of the updatable fields directly by user here
+  async update(id: string, medicationUpdateData: Partial<Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>>): Promise<Medication | null> {
     const dataToUpdate = mapMedicationToDb(medicationUpdateData);
-    if (dataToUpdate.doctor_id) delete dataToUpdate.doctor_id; // No permitir cambiar el doctor_id
+    // doctor_id should not be updatable through this generic update, RLS handles ownership.
+    if (dataToUpdate.doctor_id) delete dataToUpdate.doctor_id; 
 
     const { data, error } = await supabase
       .from('medications')
@@ -105,7 +106,6 @@ export const medicationService = {
   },
 
   async delete(id: string): Promise<void> {
-    // RLS se encargará de verificar
     const { error } = await supabase
       .from('medications')
       .delete()
