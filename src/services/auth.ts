@@ -20,40 +20,54 @@ export interface ExtendedSignUpCredentials extends SignUpWithPasswordCredentials
 
 export const authService = {
   async signIn(credentials: SignInWithPasswordCredentials): Promise<{ user: User; session: Session; }> {
+    console.log("authService.signIn: called with email:", credentials.email);
     const { data, error } = await supabase.auth.signInWithPassword(credentials);
     
-    if (error) throw error;
-    if (!data.user || !data.session) throw new Error("Sign in successful but no user or session data returned.");
+    if (error) {
+      console.error("authService.signIn: Supabase error:", error);
+      throw error;
+    }
+    if (!data.user || !data.session) {
+      console.error("authService.signIn: No user or session data returned from Supabase.");
+      throw new Error("Sign in successful but no user or session data returned.");
+    }
+    console.log("authService.signIn: Success. User ID:", data.user.id);
     return { user: data.user, session: data.session };
   },
 
   async signUp(credentials: ExtendedSignUpCredentials): Promise<{ user: User | null; session: Session | null; error: Error | null }> {
-    // credentials incluirá email, password, y opcionalmente options: { data: { name: 'John Doe', specialty: 'Cardiology' } }
+    // Log para depurar qué se está pasando a Supabase
+    console.log("authService.signUp: Credentials received:", JSON.stringify(credentials, null, 2));
+    
     const { data, error } = await supabase.auth.signUp({
         email: credentials.email,
         password: credentials.password,
-        options: credentials.options // Pasa todas las opciones, incluyendo data
+        options: credentials.options // Pasa todas las opciones, incluyendo options.data
     });
     
-    // signUp devuelve { data: { user, session }, error }
-    // Si la confirmación por email está activada, data.session será null hasta que se confirme.
-    // data.user tendrá el usuario incluso si no está confirmado.
     if (error) {
-        return { user: null, session: null, error };
+      console.error("authService.signUp: Supabase error:", error);
+      return { user: null, session: null, error };
     }
+    console.log("authService.signUp: Supabase response data:", data);
     return { user: data.user, session: data.session, error: null };
   },
 
   async signOut(): Promise<void> {
+    console.log("authService.signOut: called");
     const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    if (error) {
+      console.error("authService.signOut: Supabase error:", error);
+      throw error;
+    }
+    console.log("authService.signOut: Success.");
   },
 
   async getCurrentUser(): Promise<User | null> {
     const { data: { user }, error } = await supabase.auth.getUser();
-    if (error) { // No lanzar error si simplemente no hay usuario, solo si hay un error de API
-        console.error("Error getting current user:", error.message);
-        return null; // Opcional: podrías lanzar el error si es crítico
+    if (error) {
+        console.error("authService.getCurrentUser: Error getting current user:", error.message);
+        return null;
     }
     return user;
   },
@@ -61,7 +75,7 @@ export const authService = {
   async getSession(): Promise<Session | null> {
     const { data: { session }, error } = await supabase.auth.getSession();
     if (error) {
-        console.error("Error getting session:", error.message);
+        console.error("authService.getSession: Error getting session:", error.message);
         return null;
     }
     return session;
