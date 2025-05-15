@@ -32,37 +32,38 @@ const SignUp: React.FC = () => {
     toast.loading('Creating account...', { id: 'signup-toast' });
 
     try {
-      const { data, error } = await authService.signUp({
+      const result = await authService.signUp({
         email,
         password,
         options: {
-          data: { // Este objeto 'data' es crucial
+          data: {
             name: name.trim(),
             specialty: specialty.trim(),
           }
         }
       });
-      toast.dismiss('signup-toast');
-
-      if (error) {
-        throw error;
-      }
-      
-      // El trigger en Supabase debería haber creado el perfil.
-      // onAuthStateChange en AppContext debería manejar el estado SIGNED_IN.
-      if (data.user) {
-        toast.success(data.session ? 'Account created successfully! Logged in.' : 'Account created! Please check your email to confirm.');
-        // setCurrentUser(data.user); // onAuthStateChange debería manejar esto
-        // await loadInitialData(data.user); // onAuthStateChange debería manejar esto
-        if (data.session) { // Si hay sesión (ej. auto-confirm o ya confirmado)
-            navigate('/');
-        } else {
-            navigate('/login', { state: { message: "Please check your email to confirm your account before logging in." } });
-        }
+    toast.dismiss('signup-toast');
+    
+    if (result.error) {
+      console.error("SignUp.tsx: authService.signUp error:", result.error);
+      throw result.error; // Para que el catch general lo maneje
+    }
+    
+    // El trigger en Supabase debería haber creado el perfil.
+    // onAuthStateChange en AppContext debería manejar el estado SIGNED_IN.
+    if (result.user) {
+      toast.success(result.session ? 'Account created successfully! Logged in.' : 'Account created! Please check your email to confirm.');
+      if (result.session) { // Si hay sesión (ej. auto-confirm o ya confirmado)
+          navigate('/');
       } else {
-        toast.error('Sign up completed, but no user data returned. Please try logging in or check email.');
-         navigate('/login');
+          // Si se requiere confirmación por email, el usuario no tendrá sesión inmediatamente.
+          navigate('/login', { state: { message: "Please check your email to confirm your account." } });
       }
+    } else {
+      // Este caso es si Supabase devuelve éxito pero sin objeto user, lo cual es raro.
+      toast.error('Sign up completed, but no user data returned. Please try logging in or check email.');
+      navigate('/login');
+    }
 
     } catch (error: any) {
       toast.dismiss('signup-toast');
