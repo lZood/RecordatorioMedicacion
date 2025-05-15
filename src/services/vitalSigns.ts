@@ -11,37 +11,48 @@ const mapVitalSignToDb = (vitalSignData: Partial<Omit<VitalSign, 'id'>>) => {
   if (vitalSignData.unit !== undefined) dbData.unit = vitalSignData.unit;
   if (vitalSignData.date !== undefined) dbData.date = vitalSignData.date;
   if (vitalSignData.time !== undefined) dbData.time = vitalSignData.time;
-  // created_at y updated_at son manejados por la DB
   return dbData;
+};
+
+// Helper para mapear de snake_case (DB) a camelCase (app) al leer datos
+const mapDbToVitalSign = (dbRecord: any): VitalSign => {
+  return {
+    id: dbRecord.id,
+    patientId: dbRecord.patient_id, // Conversión clave
+    type: dbRecord.type,
+    value: dbRecord.value,
+    unit: dbRecord.unit,
+    date: dbRecord.date,
+    time: dbRecord.time,
+    // Si tuvieras createdAt/updatedAt en tu tipo VitalSign y los seleccionaras:
+    // createdAt: dbRecord.created_at,
+    // updatedAt: dbRecord.updated_at,
+  };
 };
 
 export const vitalSignService = {
   async create(vitalSignDataFromApp: Omit<VitalSign, 'id'>): Promise<VitalSign | null> {
-    // El tipo VitalSign no incluye createdAt, así que Omit<VitalSign, 'id'> está bien.
-    // El servicio de Supabase espera un objeto con claves que coincidan con las columnas de la DB.
-    // Si pasamos patientId (camelCase), el cliente Supabase debería convertirlo a patient_id (snake_case).
-    // Sin embargo, para ser explícitos y consistentes con otros servicios, mapearemos.
     const dataToInsert = mapVitalSignToDb(vitalSignDataFromApp);
     console.log("vitalSignService: Insertando (snake_case):", dataToInsert);
 
     const { data, error } = await supabase
       .from('vital_signs')
       .insert(dataToInsert)
-      .select() // Debería devolver las columnas convertidas a camelCase
+      .select()
       .single();
       
     if (error) {
       console.error("vitalSignService: Error creando vital sign:", error);
       throw error;
     }
-    console.log("vitalSignService: Creación exitosa, datos devueltos (deberían ser camelCase):", data);
-    return data as VitalSign | null;
+    console.log("vitalSignService: Datos crudos de Supabase tras crear:", data);
+    return data ? mapDbToVitalSign(data) : null; // Mapear a camelCase
   },
 
   async getAll(): Promise<VitalSign[]> {
     const { data, error } = await supabase
       .from('vital_signs')
-      .select('*') // El cliente Supabase convierte a camelCase
+      .select('*')
       .order('date', { ascending: false })
       .order('time', { ascending: false });
       
@@ -49,14 +60,15 @@ export const vitalSignService = {
       console.error("vitalSignService: Error obteniendo todos los vital signs:", error);
       throw error;
     }
-    return (data as VitalSign[]) || [];
+    console.log("vitalSignService: Datos crudos de Supabase en getAll:", data);
+    return data ? data.map(mapDbToVitalSign) : []; // Mapear cada registro a camelCase
   },
 
   async getByPatient(patientId: string): Promise<VitalSign[]> {
     const { data, error } = await supabase
       .from('vital_signs')
-      .select('*') // El cliente Supabase convierte a camelCase
-      .eq('patient_id', patientId) // Usar snake_case para la columna de la DB en la consulta
+      .select('*')
+      .eq('patient_id', patientId)
       .order('date', { ascending: false })
       .order('time', { ascending: false });
       
@@ -64,26 +76,26 @@ export const vitalSignService = {
       console.error(`vitalSignService: Error obteniendo vital signs para paciente ${patientId}:`, error);
       throw error;
     }
-    return (data as VitalSign[]) || [];
+    return data ? data.map(mapDbToVitalSign) : []; // Mapear cada registro a camelCase
   },
 
   async update(id: string, vitalSignUpdateData: Partial<Omit<VitalSign, 'id'>>): Promise<VitalSign | null> {
-    const dataToUpdate = mapVitalSignToDb(vitalSignUpdateData);
+    const dataToUpdate = mapVitalSignToDb(vitalSignUpdateData); // camelCase a snake_case para enviar
     console.log(`vitalSignService: Actualizando (ID: ${id}, snake_case):`, dataToUpdate);
 
     const { data, error } = await supabase
       .from('vital_signs')
       .update(dataToUpdate)
       .eq('id', id)
-      .select() // Debería devolver las columnas convertidas a camelCase
+      .select()
       .single();
       
     if (error) {
       console.error(`vitalSignService: Error actualizando vital sign ID ${id}:`, error);
       throw error;
     }
-    console.log("vitalSignService: Actualización exitosa, datos devueltos (camelCase):", data);
-    return data as VitalSign | null;
+    console.log("vitalSignService: Datos crudos de Supabase tras actualizar:", data);
+    return data ? mapDbToVitalSign(data) : null; // Mapear a camelCase
   },
 
   async delete(id: string): Promise<void> {
