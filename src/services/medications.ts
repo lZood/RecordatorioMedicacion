@@ -1,97 +1,118 @@
 // src/services/medications.ts
 import { supabase } from '../lib/supabase';
-import { Medication } from '../types'; // Tu tipo Medication usa camelCase
+import { Medication } from '../types';
+
+// Helper para mapear de camelCase (app) a snake_case (DB)
+const mapMedicationToDb = (medicationData: Partial<Omit<Medication, 'id' | 'createdAt' | 'updatedAt'>>) => {
+  const dbData: { [key: string]: any } = {};
+  if (medicationData.name !== undefined) dbData.name = medicationData.name;
+  if (medicationData.activeIngredient !== undefined) dbData.active_ingredient = medicationData.activeIngredient;
+  if (medicationData.expirationDate !== undefined) dbData.expiration_date = medicationData.expirationDate;
+  if (medicationData.description !== undefined) dbData.description = medicationData.description ?? null;
+  if (medicationData.doctorId !== undefined) dbData.doctor_id = medicationData.doctorId; // Mapear doctorId
+  // createdAt y updatedAt son manejados por la DB
+  return dbData;
+};
+
+// Helper para mapear de snake_case (DB) a camelCase (app)
+const mapDbToMedication = (dbRecord: any): Medication | null => {
+  if (!dbRecord) return null;
+  return {
+    id: dbRecord.id,
+    name: dbRecord.name,
+    activeIngredient: dbRecord.active_ingredient,
+    expirationDate: dbRecord.expiration_date,
+    description: dbRecord.description,
+    doctorId: dbRecord.doctor_id, // Mapear doctor_id
+    createdAt: dbRecord.created_at,
+    updatedAt: dbRecord.updated_at,
+  };
+};
 
 export const medicationService = {
-  async create(medicationDataFromApp: Omit<Medication, 'id'>): Promise<Medication | null> {
-    console.log("medicationService: Recibido para crear (camelCase):", medicationDataFromApp);
-
-    // Mapear a snake_case para la inserción en la base de datos
-    const dataToInsert = {
-      name: medicationDataFromApp.name,
-      active_ingredient: medicationDataFromApp.activeIngredient, // snake_case
-      expiration_date: medicationDataFromApp.expirationDate,     // snake_case
-      description: medicationDataFromApp.description ?? null,      // Usa null para campos opcionales indefinidos
-    };
-    console.log("medicationService: Insertando (snake_case):", dataToInsert);
+  async create(medicationDataFromApp: Omit<Medication, 'id' | 'createdAt' | 'updatedAt'>): Promise<Medication | null> {
+    // medicationDataFromApp DEBE incluir doctorId, que se añade en AppContext
+    if (!medicationDataFromApp.doctorId) {
+      console.error("medicationService.create: doctorId is missing.");
+      throw new Error("doctorId is required to create a medication.");
+    }
+    const dataToInsert = mapMedicationToDb(medicationDataFromApp);
+    console.log("medicationService: Insertando medicamento (snake_case):", dataToInsert);
 
     const { data, error } = await supabase
       .from('medications')
-      .insert(dataToInsert) // Enviamos el objeto con claves en snake_case
-      .select() // Supabase debería devolver los datos con claves convertidas a camelCase
+      .insert(dataToInsert)
+      .select() // Debería devolver camelCase si el cliente está configurado por defecto
       .single();
-
+      
     if (error) {
-      console.error("medicationService: Error de Supabase al crear:", error);
+      console.error("medicationService: Error creando medicamento:", error);
       throw error;
     }
-    console.log("medicationService: Creación exitosa, datos devueltos (deberían ser camelCase por el cliente):", data);
-    return data as Medication | null; // Hacemos cast al tipo Medication (camelCase)
+    console.log("medicationService: Medicamento creado, datos crudos de Supabase:", data);
+    return data ? mapDbToMedication(data) : null;
   },
 
   async getAll(): Promise<Medication[]> {
+    // RLS se encargará de filtrar por doctor_id = auth.uid()
+    console.log("medicationService.getAll: Fetching medications (RLS will filter)...");
     const { data, error } = await supabase
       .from('medications')
-      .select('*') // El cliente Supabase convierte snake_case de la DB a camelCase
+      .select('*') // El cliente Supabase debería convertir a camelCase
       .order('name', { ascending: true });
-
+      
     if (error) {
-      console.error("medicationService: Error de Supabase al obtener todos:", error);
+      console.error("medicationService.getAll: Error obteniendo todos los medicamentos:", error);
       throw error;
     }
-    return (data as Medication[]) || [];
+    return data ? data.map(mapDbToMedication).filter(m => m !== null) as Medication[] : [];
   },
 
   async getById(id: string): Promise<Medication | null> {
+    // RLS se encargará de filtrar
     const { data, error } = await supabase
       .from('medications')
-      .select('*') // Convierte a camelCase
+      .select('*')
       .eq('id', id)
       .single();
-
+      
     if (error) {
-      console.error(`medicationService: Error de Supabase al obtener por ID ${id}:`, error);
+      if (error.code === 'PGRST116') return null; // No encontrado
+      console.error(`medicationService.getById: Error obteniendo medicamento por ID ${id}:`, error);
       throw error;
     }
-    return data as Medication | null;
+    return data ? mapDbToMedication(data) : null;
   },
 
-  async update(id: string, medicationUpdateData: Partial<Medication>): Promise<Medication | null> {
-    console.log(`medicationService: Recibido para actualizar (ID: ${id}, camelCase):`, medicationUpdateData);
-
-    // Mapear a snake_case para la actualización
-    const dataToUpdate: { [key: string]: any } = {};
-    if (medicationUpdateData.name !== undefined) dataToUpdate.name = medicationUpdateData.name;
-    if (medicationUpdateData.activeIngredient !== undefined) dataToUpdate.active_ingredient = medicationUpdateData.activeIngredient;
-    if (medicationUpdateData.expirationDate !== undefined) dataToUpdate.expiration_date = medicationUpdateData.expirationDate;
-    if (medicationUpdateData.description !== undefined) dataToUpdate.description = medicationUpdateData.description ?? null;
-    // No incluir 'id' en el payload de actualización
-
-    console.log("medicationService: Actualizando (snake_case):", dataToUpdate);
+  async update(id: string, medicationUpdateData: Partial<Omit<Medication, 'id' | 'createdAt' | 'updatedAt' | 'doctorId'>>): Promise<Medication | null> {
+    // RLS se encargará de verificar que el doctor solo actualice sus medicamentos.
+    // No se permite cambiar doctorId aquí.
+    const dataToUpdate = mapMedicationToDb(medicationUpdateData);
+    if (dataToUpdate.doctor_id) delete dataToUpdate.doctor_id; // No permitir cambiar el doctor_id
 
     const { data, error } = await supabase
       .from('medications')
       .update(dataToUpdate)
       .eq('id', id)
-      .select() // Convierte a camelCase
+      .select()
       .single();
-
+      
     if (error) {
-      console.error(`medicationService: Error de Supabase al actualizar ID ${id}:`, error);
+      console.error(`medicationService.update: Error actualizando medicamento ID ${id}:`, error);
       throw error;
     }
-    console.log("medicationService: Actualización exitosa, datos devueltos (camelCase):", data);
-    return data as Medication | null;
+    return data ? mapDbToMedication(data) : null;
   },
 
   async delete(id: string): Promise<void> {
+    // RLS se encargará de verificar
     const { error } = await supabase
       .from('medications')
       .delete()
       .eq('id', id);
-
+      
     if (error) {
-      console.error(`medicationService: Error de Supabase al eliminar ID ${id}:`, error);
+      console.error(`medicationService.delete: Error eliminando medicamento ID ${id}:`, error);
       throw error;
     }
   }
