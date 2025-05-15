@@ -8,7 +8,6 @@ const Header: React.FC = () => {
 
   const isLoadingInfo = loadingAuth || (currentUser && loadingProfile);
 
-  // Prioriza la información del userProfile si está disponible y cargado.
   const displayName = userProfile?.name || currentUser?.user_metadata?.name || "Doctor";
   const displaySpecialtyOrRole = userProfile?.specialty || (userProfile?.role ? `Role: ${userProfile.role}` : "Specialist");
   
@@ -40,7 +39,7 @@ const Header: React.FC = () => {
         {currentUser ? (
           <div className="flex items-center space-x-2 cursor-pointer p-1 hover:bg-gray-100 rounded-lg transition-colors">
             <div className="w-9 h-9 bg-indigo-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-              {isLoadingInfo ? 'L' : userInitials} {/* L for Loading */}
+              {isLoadingInfo && !userProfile ? 'L' : userInitials}
             </div>
             {!isLoadingInfo && userProfile && (
               <div className="hidden md:block">
@@ -52,7 +51,7 @@ const Header: React.FC = () => {
                 </p>
               </div>
             )}
-            {isLoadingInfo && (
+            {isLoadingInfo && !userProfile && ( // Muestra placeholder si el perfil está cargando y aún no está disponible
                  <div className="hidden md:block">
                     <div className="h-4 bg-gray-200 rounded w-24 mb-1 animate-pulse"></div>
                     <div className="h-3 bg-gray-200 rounded w-16 animate-pulse"></div>
@@ -68,7 +67,6 @@ const Header: React.FC = () => {
             )}
           </div>
         ) : (
-          // Placeholder o botón de login si no hay usuario
           <div className="w-9 h-9 bg-gray-300 rounded-full flex items-center justify-center">
             <UserIcon size={18} className="text-gray-600"/>
           </div>
