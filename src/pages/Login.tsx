@@ -20,19 +20,19 @@ const Login: React.FC = () => {
     const toastId = toast.loading('Signing in...');
 
     try {
-      const { user, session } = await authService.signIn(email, password);
+      const result = await authService.signIn({ email, password }); // Pasa un objeto
       toast.dismiss(toastId);
-
-      if (user && session) {
+      
+      if (result.error) {
+        console.error("Login.tsx: authService.signIn error:", result.error);
+        toast.error(result.error.message || 'Login failed. Please check your credentials.');
+      } else if (result.user && result.session) {
         toast.success('Login successful!');
-        // AppContext's onAuthStateChange should handle setting user and loading data
-        // if (setCurrentUser) setCurrentUser(user); // Comentado si onAuthStateChange lo maneja
-        // if (loadInitialData) await loadInitialData(user); // Comentado si onAuthStateChange lo maneja
+        // AppContext.onAuthStateChange debería manejar la actualización del usuario y la carga de datos.
         navigate('/');
       } else {
-        // Esto es improbable si signIn no lanza error y devuelve user/session
-        // pero es bueno tener un fallback.
-        toast.error('Login failed. Please try again.');
+        // Este caso es menos probable si signIn devuelve error o user/session
+        toast.error('Login failed. Unexpected response.');
       }
     } catch (error: any) {
       toast.dismiss(toastId);
