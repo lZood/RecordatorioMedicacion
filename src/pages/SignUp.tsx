@@ -35,9 +35,11 @@ const SignUp: React.FC = () => {
       const { data, error } = await authService.signUp({
         email,
         password,
-        data: { // Estos datos se guardarán en raw_user_meta_data y el trigger los usará
-          name: name.trim(),
-          specialty: specialty.trim(),
+        options: {
+          data: { // Este objeto 'data' es crucial
+            name: name.trim(),
+            specialty: specialty.trim(),
+          }
         }
       });
       toast.dismiss('signup-toast');
