@@ -1,41 +1,60 @@
+// src/services/profiles.ts
 import { supabase } from '../lib/supabase';
-import { Doctor } from '../types'; // Asumiendo que Doctor es el tipo para los perfiles
+import { UserProfile } from '../types';
+
+// Helper para mapear de snake_case (DB) a camelCase (app)
+const mapDbToUserProfile = (dbRecord: any): UserProfile | null => {
+  if (!dbRecord) return null;
+  return {
+    id: dbRecord.id,
+    name: dbRecord.name,
+    email: dbRecord.email,
+    role: dbRecord.role,
+    specialty: dbRecord.specialty,
+    createdAt: dbRecord.created_at,
+    updatedAt: dbRecord.updated_at,
+  };
+};
 
 export const profileService = {
-  async getAllDoctors(): Promise<Doctor[]> {
-    // Seleccionamos los campos que coinciden con el tipo Doctor
-    // La tabla 'profiles' tiene 'id', 'name', 'specialty'.
-    // El tipo 'Doctor' también tiene 'email', que no está directamente en 'profiles'
-    // sino en 'auth.users'. Por simplicidad, aquí solo obtendremos los campos de 'profiles'.
-    // Si necesitas el email, tendrías que hacer un JOIN o una consulta separada a auth.users,
-    // o añadir el email a la tabla profiles (requeriría una migración).
+  async getAllDoctors(): Promise<UserProfile[]> {
+    console.log("profileService.getAllDoctors: Fetching all doctor profiles...");
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, name, specialty'); // El cliente Supabase convierte a camelCase
+      .select('id, name, specialty, email, role, created_at, updated_at')
+      .eq('role', 'doctor'); // Solo perfiles de doctores
 
     if (error) {
-      console.error("profileService: Error fetching doctors:", error);
+      console.error("profileService.getAllDoctors: Error fetching doctors:", error);
       throw error;
     }
-    // El 'data' aquí debería tener objetos con id, name, specialty (ya en camelCase)
-    // Hacemos un cast a Doctor[], asumiendo que la estructura coincide.
-    return (data as Doctor[]) || [];
+    console.log("profileService.getAllDoctors: Raw data from Supabase:", data);
+    return data ? data.map(mapDbToUserProfile).filter(profile => profile !== null) as UserProfile[] : [];
   },
 
-  async getDoctorById(id: string): Promise<Doctor | null> {
+  async getProfileByUserId(userId: string): Promise<UserProfile | null> {
+    if (!userId) {
+      console.warn("profileService.getProfileByUserId: No userId provided.");
+      return null;
+    }
+    console.log(`profileService.getProfileByUserId: Fetching profile for user ID: ${userId}`);
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, name, specialty')
-      .eq('id', id)
+      .select('id, name, specialty, email, role, created_at, updated_at')
+      .eq('id', userId)
       .single();
 
     if (error) {
-      console.error(`profileService: Error fetching doctor by ID ${id}:`, error);
+      if (error.code === 'PGRST116') { // 'PGRST116' es "Query result contains no rows"
+        console.warn(`profileService.getProfileByUserId: No profile found for user ID ${userId}.`);
+        return null;
+      }
+      console.error(`profileService.getProfileByUserId: Error fetching profile for user ID ${userId}:`, error);
       throw error;
     }
-    return data as Doctor | null;
+    console.log(`profileService.getProfileByUserId (${userId}): Raw data from Supabase:`, data);
+    return data ? mapDbToUserProfile(data) : null;
   }
-  // No implementaremos create/update/delete para profiles aquí,
-  // ya que generalmente se manejan a través del registro de usuarios (auth)
-  // y una posible página de "Mi Perfil" para el doctor logueado.
+  // La creación de perfiles se maneja por el trigger.
+  // La actualización podría ser una funcionalidad separada (ej. página "Mi Perfil").
 };
