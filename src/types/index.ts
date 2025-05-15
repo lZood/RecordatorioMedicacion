@@ -7,7 +7,7 @@ export interface Patient {
   address: string;
   email: string;
   createdAt: string;
-  doctorId?: string; // ID del doctor que gestiona/creó este paciente
+  doctorId?: string;
 }
 
 export interface Medication {
@@ -16,31 +16,31 @@ export interface Medication {
   activeIngredient: string;
   expirationDate: string;
   description?: string;
+  doctorId: string; // Made doctorId required for a Medication
   createdAt?: string;
   updatedAt?: string;
 }
 
-// Perfil de usuario genérico (puede ser doctor o paciente en el futuro)
+// Perfil de usuario genérico
 export interface UserProfile {
-  id: string; // Coincide con auth.users.id
+  id: string;
   name: string;
-  email: string; // Email del usuario
-  role: 'doctor' | 'patient' | string; // Roles definidos
-  specialty?: string; // Opcional, principalmente para doctores
+  email: string;
+  role: 'doctor' | 'patient' | string;
+  specialty?: string;
   createdAt?: string;
   updatedAt?: string;
 }
 
-// Tipo específico para Doctor, hereda de UserProfile
+// Tipo específico para Doctor
 export interface Doctor extends UserProfile {
   role: 'doctor';
-  specialty: string; // Para un doctor, la especialidad es requerida
+  specialty: string;
 }
 
-// Tipo específico para Paciente (perfil), si los pacientes tuvieran perfiles en la tabla 'profiles'
+// Tipo específico para Paciente (perfil)
 export interface PatientProfile extends UserProfile {
   role: 'patient';
-  // Otros campos específicos del perfil del paciente si los hubiera
 }
 
 export interface MedicationIntake {
@@ -66,7 +66,6 @@ export interface VitalSign {
   updatedAt?: string;
 }
 
-// Información resumida para mostrar en citas
 export interface AppointmentPatientInfo {
   id: string;
   name: string;
@@ -77,18 +76,17 @@ export interface AppointmentDoctorInfo {
   specialty?: string;
 }
 
-// Tipo Appointment, usando UserProfile para la información del doctor
 export interface Appointment {
   id: string;
-  patientId: string; // ID de la tabla 'patients'
-  doctorId: string;  // ID de la tabla 'profiles' (del doctor)
-  specialty: string; // Especialidad de la cita (puede ser la del doctor o una específica)
+  patientId: string;
+  doctorId: string;
+  specialty: string;
   date: string;
   time: string;
   diagnosis?: string;
   status: 'scheduled' | 'completed' | 'cancelled';
-  patient?: AppointmentPatientInfo | null; // Datos anidados del paciente
-  doctor?: AppointmentDoctorInfo | null;  // Datos anidados del doctor
+  patient?: AppointmentPatientInfo | null;
+  doctor?: AppointmentDoctorInfo | null;
   createdAt?: string;
   updatedAt?: string;
 }
