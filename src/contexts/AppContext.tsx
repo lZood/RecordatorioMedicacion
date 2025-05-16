@@ -78,7 +78,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [loadingDoctors, setLoadingDoctors] = useState(false);
   const [loadingVitalSigns, setLoadingVitalSigns] = useState(false);
-  const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(false);
+  const [loadingMedicationIntakes, console.log("Attempting to save medication. Current User ID:", currentUser?.id, "User Profile:", userProfile);] = useState(false);
 
 
   const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
