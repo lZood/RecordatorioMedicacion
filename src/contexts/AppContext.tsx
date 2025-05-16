@@ -1,7 +1,6 @@
 // src/contexts/AppContext.tsx
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Patient, Medication, Appointment, VitalSign, MedicationIntake, UserProfile, Doctor } from '../types';
-// Importa el tipo enriquecido para MedicationIntake desde el servicio donde se define
 import { MedicationIntakeWithMedication } from '../services/medicationIntakes';
 import { User, Subscription, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
@@ -18,26 +17,23 @@ interface AppContextType {
   currentUser: User | null;
   userProfile: UserProfile | null;
   loadingAuth: boolean;
-  loadingData: boolean; // Carga general de datos de la app
-  loadingProfile: boolean; // Carga del perfil del usuario actual
+  loadingData: boolean;
+  loadingProfile: boolean;
 
-  // Patients
   patients: Patient[];
   addPatient: (patientData: Omit<Patient, 'id' | 'createdAt' | 'doctorId'>) => Promise<Patient | undefined>;
   updatePatient: (id: string, updatedPatientData: Partial<Patient>) => Promise<void>;
   deletePatient: (id: string) => Promise<void>;
   getPatientById: (id: string) => Patient | undefined;
 
-  // Medications
   medications: Medication[];
   addMedication: (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>) => Promise<Medication | undefined>;
   updateMedication: (id: string, updatedMedicationData: Partial<Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>>) => Promise<void>;
   deleteMedication: (id: string) => Promise<void>;
   getMedicationById: (id: string) => Medication | undefined;
   
-  // Appointments
   appointments: Appointment[];
-  doctors: UserProfile[]; // Lista de todos los doctores para selectores
+  doctors: UserProfile[];
   loadingAppointments: boolean;
   loadingDoctors: boolean;
   addAppointment: (appointmentData: Omit<Appointment, 'id'>) => Promise<Appointment | undefined>;
@@ -45,21 +41,19 @@ interface AppContextType {
   deleteAppointment: (id: string) => Promise<void>;
   getAppointmentById: (id: string) => Appointment | undefined;
 
-  // VitalSigns
-  vitalSigns: VitalSign[]; // Lista global de signos vitales (RLS filtrará para el doctor)
+  vitalSigns: VitalSign[];
   loadingVitalSigns: boolean;
   addVitalSign: (vitalSignData: Omit<VitalSign, 'id'>) => Promise<VitalSign | undefined>;
   updateVitalSign: (id: string, vitalSignUpdateData: Partial<Omit<VitalSign, 'id'>>) => Promise<void>;
   deleteVitalSign: (id: string) => Promise<void>;
-  fetchVitalSignsForPatient: (patientId: string) => Promise<VitalSign[]>; // Para PatientDetails
+  fetchVitalSignsForPatient: (patientId: string) => Promise<VitalSign[]>;
   
-  // MedicationIntakes
-  medicationIntakes: MedicationIntakeWithMedication[]; // Lista global (RLS filtrará)
+  medicationIntakes: MedicationIntakeWithMedication[];
   loadingMedicationIntakes: boolean;
   addMedicationIntake: (intakeData: Omit<MedicationIntake, 'id' | 'createdAt' | 'updatedAt'>) => Promise<MedicationIntakeWithMedication | undefined>;
   updateMedicationIntake: (id: string, intakeUpdateData: Partial<Omit<MedicationIntake, 'id' | 'patientId' | 'medicationId' | 'createdAt' | 'updatedAt'>>) => Promise<MedicationIntakeWithMedication | undefined>;
   deleteMedicationIntake: (id: string) => Promise<void>;
-  fetchMedicationIntakesForPatient: (patientId: string) => Promise<MedicationIntakeWithMedication[]>; // Para PatientDetails
+  fetchMedicationIntakesForPatient: (patientId: string) => Promise<MedicationIntakeWithMedication[]>;
 
   signOut: () => Promise<void>;
   loadInitialData: (user: User | null) => Promise<void>;
@@ -84,7 +78,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [loadingDoctors, setLoadingDoctors] = useState(false);
   const [loadingVitalSigns, setLoadingVitalSigns] = useState(false);
-  const [loadingMedicationIntakes, console.log("Attempting to save medication. Current User ID:", currentUser?.id, "User Profile:", userProfile);] = useState(false);
+  const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(false); // Corregida la declaración
 
 
   const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
@@ -122,48 +116,47 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const fetchedProfile = await fetchUserProfile(authUser.id);
 
     setLoadingData(true); setLoadingAppointments(true); setLoadingDoctors(true); 
-    setLoadingVitalSigns(true); setLoadingMedicationIntakes(true);
+    setLoadingVitalSigns(true); setLoadingMedicationIntakes(true); // Aunque no carguemos intakes globalmente, reseteamos el loader
     try {
       const doctorsDataPromise = profileService.getAllDoctors(); 
 
       let dataPromises: Promise<any>[] = [doctorsDataPromise];
+      let medicationIntakesDataToSet: MedicationIntakeWithMedication[] = []; // Inicializar
       
       if (fetchedProfile?.role === 'doctor') {
         console.log("AppContext: User is a doctor, queueing doctor-specific data loading.");
         dataPromises = [
           ...dataPromises,
           patientService.getAll(),
-          medicationService.getAll(), // RLS filtrará esto
+          medicationService.getAll(), 
           appointmentService.getAll(),
           vitalSignService.getAll(),
-          medicationIntakeService.getByPatient(fetchedProfile.id), // Cargar solo las del paciente actual (o todas si RLS lo permite)
-                                                                  // Si es para todos los pacientes del doctor, necesitarías otra lógica o RLS más compleja
-                                                                  // Por ahora, si esto debe ser global, sería medicationIntakeService.getAll() (si existe y RLS lo permite)
-                                                                  // Si es solo para el doctor actual, no tiene sentido cargar medicationIntakes globalmente.
-                                                                  // Lo quitaré de la carga global por ahora. Se cargará en PatientDetails.
+          // No llamamos a medicationIntakeService.getAll() aquí.
+          // Las tomas de medicamentos se cargarán bajo demanda por paciente.
+          // El placeholder es para mantener la estructura de Promise.all si fuera necesario.
         ];
+        // No añadimos una promesa para medicationIntakes aquí si no se carga globalmente
       } else {
         console.log(`AppContext: User role is not 'doctor' (role: ${fetchedProfile?.role}). Skipping doctor-specific data sets.`);
         setPatients([]); setMedications([]); setAppointments([]);
         setVitalSigns([]); setMedicationIntakes([]);
-        dataPromises = [doctorsDataPromise, Promise.resolve([]), Promise.resolve([]), Promise.resolve([]), Promise.resolve([])]; // Ajustado
+        // Solo la promesa de doctores si no es doctor
+        dataPromises = [doctorsDataPromise, Promise.resolve([]), Promise.resolve([]), Promise.resolve([]), Promise.resolve([])];
       }
       
-      const [
-        resolvedDoctorsData,
-        patientsData, medicationsData, appointmentsData,
-        vitalSignsData, 
-        // medicationIntakesData ya no se espera aquí de un getAll()
-      ] = await Promise.all(dataPromises);
-
+      // Ajustar la destructuración según el número de promesas
+      const results = await Promise.all(dataPromises);
+      const resolvedDoctorsData = results[0];
+      
       setDoctors(resolvedDoctorsData || []);
       
       if (fetchedProfile?.role === 'doctor') {
-        setPatients(patientsData || []);
-        setMedications(medicationsData || []);
-        setAppointments(appointmentsData || []);
-        setVitalSigns(vitalSignsData || []);
-        // setMedicationIntakes([]); // Se carga bajo demanda en PatientDetails
+        setPatients(results[1] || []);
+        setMedications(results[2] || []);
+        setAppointments(results[3] || []);
+        setVitalSigns(results[4] || []);
+        // MedicationIntakes no se carga globalmente aquí, se mantiene como [] o se carga bajo demanda.
+        setMedicationIntakes([]); 
       }
 
     } catch (error) {
