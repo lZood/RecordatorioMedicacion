@@ -1,12 +1,12 @@
 // src/pages/PatientDetails.tsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAppContext } from '../contexts/AppContext';
 import { Patient, Medication, VitalSign, MedicationIntake } from '../types';
-import { MedicationIntakeWithMedication } from '../services/medicationIntakes'; // Tipo enriquecido
+import { MedicationIntakeWithMedication } from '../services/medicationIntakes';
 import {
   ArrowLeft, Edit, Phone, Mail, MapPin, Calendar as CalendarIcon, Pill, Activity, FileText,
-  PlusCircle, CheckSquare, XSquare, Trash2, Clock, ListChecks, HeartPulse
+  PlusCircle, CheckSquare, XSquare, Trash2, Clock, ListChecks, HeartPulse, X // <--- AÑADIR X AQUÍ
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -15,16 +15,17 @@ type MedicationIntakeFormData = Omit<MedicationIntake, 'id' | 'patientId' | 'cre
 
 const PatientDetails: React.FC = () => {
   const { id: patientId } = useParams<{ id: string }>();
+  const navigate = useNavigate(); // Definir navigate
   const {
     getPatientById,
-    medications = [], // Lista de medicamentos del doctor para el selector
+    medications = [],
     addMedicationIntake,
     updateMedicationIntake,
     deleteMedicationIntake,
-    fetchMedicationIntakesForPatient, // Para cargar las tomas del paciente actual
-    fetchVitalSignsForPatient,       // Para cargar los signos vitales del paciente actual
+    fetchMedicationIntakesForPatient,
+    fetchVitalSignsForPatient,
     userProfile,
-    currentUser
+    currentUser // Necesario para verificaciones de autorización
   } = useAppContext();
 
   const [patient, setPatient] = useState<Patient | null | undefined>(null);
@@ -48,25 +49,30 @@ const PatientDetails: React.FC = () => {
       setPatient(currentPatient);
 
       const loadPatientSpecificData = async () => {
-        if (userProfile?.role === 'doctor') {
+        // Solo cargar si el usuario es doctor y el patientId es válido
+        if (userProfile?.role === 'doctor' && patientId) {
             setLoadingIntakes(true);
             setLoadingVitals(true);
             try {
                 const intakes = await fetchMedicationIntakesForPatient(patientId);
                 setPatientMedicationIntakes(intakes.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time)));
-            } catch (error) { console.error("Error fetching intakes for patient:", error); }
+            } catch (error) { console.error("Error fetching intakes for patient:", error); toast.error("Could not load medication intakes."); }
             finally { setLoadingIntakes(false); }
 
             try {
                 const vitals = await fetchVitalSignsForPatient(patientId);
                 setPatientVitalSigns(vitals.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time)));
-            } catch (error) { console.error("Error fetching vitals for patient:", error); }
+            } catch (error) { console.error("Error fetching vitals for patient:", error); toast.error("Could not load vital signs."); }
             finally { setLoadingVitals(false); }
+        } else if (userProfile?.role !== 'doctor') {
+            // Limpiar datos si el usuario no es doctor, aunque RLS debería prevenir la carga
+            setPatientMedicationIntakes([]);
+            setPatientVitalSigns([]);
         }
       };
       loadPatientSpecificData();
     }
-  }, [patientId, getPatientById, fetchMedicationIntakesForPatient, fetchVitalSignsForPatient, userProfile?.role]);
+  }, [patientId, getPatientById, fetchMedicationIntakesForPatient, fetchVitalSignsForPatient, userProfile?.role]); // Añadido userProfile?.role
 
   const handleIntakeFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -77,8 +83,20 @@ const PatientDetails: React.FC = () => {
     }
   };
 
+  const resetIntakeForm = () => {
+    setIntakeFormData({
+        medicationId: '',
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toTimeString().slice(0,5),
+        taken: false,
+    });
+  };
+
   const handleAddIntakeSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!currentUser || userProfile?.role !== 'doctor') {
+        toast.error("Only doctors can add medication intakes."); return;
+    }
     if (!patientId || !intakeFormData.medicationId || !intakeFormData.date || !intakeFormData.time) {
       toast.error("Medication, Date, and Time are required for medication plan.");
       return;
@@ -96,18 +114,22 @@ const PatientDetails: React.FC = () => {
       if (addedIntake) {
         setPatientMedicationIntakes(prev => [addedIntake, ...prev].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time)));
         setShowAddIntakeModal(false);
-        setIntakeFormData({ medicationId: '', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().slice(0,5), taken: false });
+        resetIntakeForm(); // Resetear el formulario
       }
     } catch (error) {
       console.error("Error adding medication intake:", error);
-      // Toast de error ya se maneja en AppContext
+      // El toast de error ya se maneja en AppContext o en el servicio
     } finally {
       setFormSubmitting(false);
     }
   };
 
   const toggleIntakeTakenStatus = async (intake: MedicationIntakeWithMedication) => {
+    if (!currentUser || userProfile?.role !== 'doctor') {
+        toast.error("Only doctors can update medication intakes."); return;
+    }
     try {
+      // Solo se actualiza 'taken'. Otros campos como date/time requerirían un modal de edición.
       const updatedIntake = await updateMedicationIntake(intake.id, { taken: !intake.taken });
       if (updatedIntake) {
         setPatientMedicationIntakes(prev =>
@@ -121,31 +143,35 @@ const PatientDetails: React.FC = () => {
   };
   
   const handleDeleteIntake = async (intakeId: string) => {
+    if (!currentUser || userProfile?.role !== 'doctor') {
+        toast.error("Only doctors can delete medication intakes."); return;
+    }
     if (window.confirm("Are you sure you want to delete this medication intake record?")) {
         try {
             await deleteMedicationIntake(intakeId);
             setPatientMedicationIntakes(prev => prev.filter(i => i.id !== intakeId));
+            // El toast de éxito ya se maneja en AppContext
         } catch (error) {
             console.error("Error deleting medication intake:", error);
+            // El toast de error ya se maneja en AppContext
         }
     }
   };
 
-
   const adherenceRate = useMemo(() => {
     if (!patientMedicationIntakes || patientMedicationIntakes.length === 0) return 0;
     const takenCount = patientMedicationIntakes.filter(intake => intake.taken).length;
-    return (takenCount / patientMedicationIntakes.length) * 100;
+    return Math.round((takenCount / patientMedicationIntakes.length) * 100);
   }, [patientMedicationIntakes]);
 
-
-  if (!patient && patient !== undefined) { // Muestra loader si patient es null (cargando)
-    return <div className="flex justify-center items-center h-screen">Loading patient details...</div>;
+  // ... (Lógica de renderizado condicional para `patient` y `loading` como antes)
+  if (!patient && patient !== undefined) {
+    return <div className="flex justify-center items-center h-screen"><div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent border-solid rounded-full animate-spin"></div><p className="ml-3">Loading patient details...</p></div>;
   }
-  if (patient === undefined) { // Muestra no encontrado si patient es undefined
+  if (patient === undefined) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500 text-lg">Patient not found.</p>
+        <p className="text-gray-500 text-lg">Patient not found or access denied.</p>
         <Link to="/patients" className="text-indigo-600 mt-4 inline-block hover:underline">
           Back to Patients
         </Link>
@@ -153,9 +179,13 @@ const PatientDetails: React.FC = () => {
     );
   }
 
+  // Formatear fecha para visualización
+  let displayPatientDob = 'N/A'; // Asumiendo que tienes patient.dateOfBirth o similar
+  // if (patient.dateOfBirth) { /* ... formateo ... */ }
+
+
   return (
     <div className="space-y-8 p-4 md:p-6 max-w-5xl mx-auto">
-      {/* Patient Info Card (similar al que tenías, puedes adaptarlo) */}
       <div className="bg-white rounded-xl shadow-lg p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
             <div>
@@ -168,19 +198,19 @@ const PatientDetails: React.FC = () => {
                 <div className="flex items-center text-gray-500 text-sm mt-1">
                     <MapPin size={16} className="mr-2"/> {patient.address}
                 </div>
+                 {/* <p className="text-sm text-gray-500 mt-1">DOB: {displayPatientDob}</p> */}
             </div>
-            <Link to="/patients" className="flex items-center text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+            <Link to="/patients" className="flex items-center text-indigo-600 hover:text-indigo-800 text-sm font-medium self-start sm:self-center">
                 <ArrowLeft size={18} className="mr-1" /> Back to Patients
             </Link>
         </div>
       </div>
 
-      {/* Sección de Estadísticas Rápidas */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white p-4 rounded-lg shadow">
                 <h3 className="text-sm font-medium text-gray-500">Medication Adherence</h3>
                 <p className={`text-2xl font-bold ${adherenceRate >= 75 ? 'text-green-600' : adherenceRate >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
-                    {adherenceRate.toFixed(0)}%
+                    {adherenceRate}%
                 </p>
             </div>
             <div className="bg-white p-4 rounded-lg shadow">
@@ -193,14 +223,14 @@ const PatientDetails: React.FC = () => {
             </div>
         </div>
 
-
       {/* Sección Plan de Medicación y Cumplimiento */}
       <div className="bg-white rounded-xl shadow-lg p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-700 flex items-center"><ListChecks size={24} className="mr-2 text-indigo-600"/>Medication Plan & Compliance</h2>
           <button
-            onClick={() => setShowAddIntakeModal(true)}
+            onClick={() => { resetIntakeForm(); setShowAddIntakeModal(true); }}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm"
+            disabled={!patientId} // Deshabilitar si no hay paciente
           >
             <PlusCircle size={18} /> Add Medication Intake
           </button>
@@ -209,21 +239,21 @@ const PatientDetails: React.FC = () => {
          patientMedicationIntakes.length > 0 ? (
           <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
             {patientMedicationIntakes.map(intake => (
-              <div key={intake.id} className={`p-3 rounded-md border flex items-center justify-between ${intake.taken ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+              <div key={intake.id} className={`p-3 rounded-md border flex items-center justify-between ${intake.taken ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
                 <div>
                   <p className="font-semibold text-gray-800">{intake.medication?.name || 'Unknown Medication'}</p>
                   <p className="text-xs text-gray-500">
                     {new Date(intake.date + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES', {month:'short', day:'numeric', year:'numeric'})} at {intake.time}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <button onClick={() => toggleIntakeTakenStatus(intake)}
                           title={intake.taken ? "Mark as Not Taken" : "Mark as Taken"}
-                          className={`p-2 rounded-full transition-colors ${intake.taken ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-gray-300 hover:bg-gray-400 text-gray-700'}`}>
-                    {intake.taken ? <CheckSquare size={18}/> : <XSquare size={18}/>}
+                          className={`p-1.5 rounded-full transition-colors ${intake.taken ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-gray-300 hover:bg-gray-400 text-gray-700'}`}>
+                    {intake.taken ? <CheckSquare size={16}/> : <XSquare size={16}/>}
                   </button>
-                   <button onClick={() => handleDeleteIntake(intake.id)} className="p-2 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full transition-colors" title="Delete Intake">
-                        <Trash2 size={18}/>
+                   <button onClick={() => handleDeleteIntake(intake.id)} className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full transition-colors" title="Delete Intake">
+                        <Trash2 size={16}/>
                     </button>
                 </div>
               </div>
@@ -240,7 +270,7 @@ const PatientDetails: React.FC = () => {
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold">Add Medication Intake</h2>
-                <button onClick={() => setShowAddIntakeModal(false)} className="text-gray-400 hover:text-gray-600"><X size={24}/></button>
+                <button onClick={() => setShowAddIntakeModal(false)} className="text-gray-400 hover:text-gray-600"><X size={24}/></button> {/* Aquí se usa X */}
             </div>
             <form onSubmit={handleAddIntakeSubmit} className="space-y-4">
               <div>
@@ -283,8 +313,7 @@ const PatientDetails: React.FC = () => {
       <div className="bg-white rounded-xl shadow-lg p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-700 flex items-center"><HeartPulse size={24} className="mr-2 text-purple-600"/>Vital Signs History</h2>
-          {/* Botón para agregar signo vital podría redirigir a la página VitalSigns o abrir un modal aquí */}
-          <Link to="/vitals" state={{ preselectedPatientId: patientId }} // Pasar patientId a la página de VitalSigns
+          <Link to="/vitals" state={{ preselectedPatientId: patientId }}
                 className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm">
             <PlusCircle size={18} /> Record New Vital Sign
           </Link>
@@ -302,7 +331,6 @@ const PatientDetails: React.FC = () => {
                         {new Date(vs.date + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES', {month:'short', day:'numeric', year:'numeric'})}, {vs.time}
                     </span>
                 </div>
-                {/* Podrías añadir botones de editar/eliminar aquí si no quieres que se haga solo en la página VitalSigns */}
               </div>
             ))}
           </div>
