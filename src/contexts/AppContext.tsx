@@ -38,7 +38,7 @@ interface AppContextType {
   loadingAppointments: boolean;
   loadingDoctors: boolean;
   addAppointment: (appointmentData: Omit<Appointment, 'id'>) => Promise<Appointment | undefined>;
-  updateAppointment: (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>) => Promise<void>;
+  updateAppointment: (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>) => Promise<Appointment | undefined>; // Return updated appointment
   deleteAppointment: (id: string) => Promise<void>;
   getAppointmentById: (id: string) => Appointment | undefined;
 
@@ -60,7 +60,8 @@ interface AppContextType {
   loadingNotifications: boolean;
   addNotification: (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Notification | undefined>;
   fetchNotificationsForPatient: (patientId: string) => Promise<Notification[]>;
-  updateNotificationStatus: (notificationId: string, status: Notification['status']) => Promise<Notification | undefined>; // Para marcar como leída, etc.
+  updateNotificationStatus: (notificationId: string, status: Notification['status']) => Promise<Notification | undefined>;
+  generateUpcomingAppointmentReminders: () => Promise<void>; // Nueva función
 
   signOut: () => Promise<void>;
   loadInitialData: (user: User | null) => Promise<void>;
@@ -91,23 +92,90 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
-    if (!userId) { 
-      setUserProfile(null); 
-      return null; 
-    }
+    if (!userId) { setUserProfile(null); return null; }
     setLoadingProfile(true);
     try {
       const profile = await profileService.getProfileByUserId(userId);
-      setUserProfile(profile);
-      return profile;
-    } catch (error) { 
-      console.error("AppContext: Error fetching user profile:", error); 
-      setUserProfile(null); 
-      return null;
-    } finally { 
-      setLoadingProfile(false); 
-    }
+      setUserProfile(profile); return profile;
+    } catch (error) { console.error("AppContext: Error fetching user profile:", error); setUserProfile(null); return null;
+    } finally { setLoadingProfile(false); }
   }, []);
+
+  const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
+    if (!currentUser || userProfile?.role !== 'doctor') { 
+        // Permitir crear notificaciones incluso si no es doctor, si el doctorId está especificado (ej. sistema)
+        if(!notificationData.doctorId && userProfile?.role !== 'doctor'){
+            toast.error("No autorizado para crear esta notificación."); 
+            throw new Error("Not authorized."); 
+        }
+    }
+    try {
+      // Asegurar que el doctorId del usuario actual se use si no se provee uno (para notificaciones generadas por el doctor)
+      const dataWithDoctorId = {
+        ...notificationData,
+        doctorId: notificationData.doctorId || (userProfile?.role === 'doctor' ? currentUser?.id : undefined),
+      };
+
+      const newNotification = await notificationService.create(dataWithDoctorId);
+      if (newNotification) {
+        setNotifications(prev => [newNotification, ...prev].sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()));
+        // No mostrar toast aquí para no molestar con notificaciones automáticas, solo para las manuales.
+        // El toast se puede manejar en el lugar donde se llama a addNotification si es una acción manual.
+        return newNotification;
+      }
+    } catch (error: any) { 
+      console.error("AppContext.addNotification: Error:", error);
+      toast.error(`Error al guardar notificación: ${error.message || 'Error desconocido'}`); 
+      throw error; 
+    }
+    return undefined;
+  }, [currentUser, userProfile]);
+
+
+  const generateUpcomingAppointmentReminders = useCallback(async () => {
+    if (userProfile?.role !== 'doctor' || !appointments.length || !patients.length) return;
+
+    console.log("AppContext: Verificando recordatorios de citas próximas (24h)...");
+    const now = new Date();
+    const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    for (const appt of appointments) {
+      if (appt.status === 'scheduled') {
+        const appointmentDateTime = new Date(`${appt.date}T${appt.time}`);
+        
+        // Verificar si la cita es dentro de las próximas 24 horas y aún no ha pasado
+        if (appointmentDateTime > now && appointmentDateTime <= twentyFourHoursLater) {
+          const existingReminder = notifications.find(
+            n => n.appointmentId === appt.id && n.type === 'appointment_reminder_24h'
+          );
+
+          if (!existingReminder) {
+            const patient = patients.find(p => p.id === appt.patientId);
+            if (patient) {
+              const message = `Recordatorio automático: Su cita de ${appt.specialty} con ${userProfile.name} es mañana, ${new Date(appt.date + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES', { weekday: 'long', month: 'long', day: 'numeric' })} a las ${new Date(`1970-01-01T${appt.time}`).toLocaleTimeString(navigator.language || 'es-ES', { hour: '2-digit', minute: '2-digit', hour12: true })}.`;
+              
+              const reminderData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
+                patientId: patient.id,
+                appointmentId: appt.id,
+                doctorId: appt.doctorId, // El doctor de la cita
+                message,
+                type: 'appointment_reminder_24h',
+                status: 'pending', // Se marcará como 'sent' por un proceso de envío real
+                sendAt: new Date(appointmentDateTime.getTime() - 24 * 60 * 60 * 1000).toISOString(), // Idealmente 24h antes
+              };
+              try {
+                await addNotification(reminderData); // Usa la función addNotification del contexto
+                console.log(`AppContext: Recordatorio de 24h generado para cita ${appt.id} para paciente ${patient.name}`);
+              } catch (error) {
+                console.error(`AppContext: Error generando recordatorio de 24h para cita ${appt.id}:`, error);
+              }
+            }
+          }
+        }
+      }
+    }
+  }, [appointments, patients, notifications, userProfile, addNotification]); // addNotification es una dependencia
+
 
   const internalLoadInitialData = useCallback(async (authUser: User | null) => {
     if (!authUser) {
@@ -121,16 +189,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const fetchedProfile = await fetchUserProfile(authUser.id);
 
     setLoadingData(true); setLoadingAppointments(true); setLoadingDoctors(true); 
-    setLoadingVitalSigns(true); setLoadingMedicationIntakes(true); setLoadingNotifications(true); // Iniciar carga de notificaciones
+    setLoadingVitalSigns(true); setLoadingMedicationIntakes(true); setLoadingNotifications(true);
     try {
       const doctorsDataPromise = profileService.getAllDoctors(); 
-      // Cargar notificaciones generales para el doctor (ej. las últimas pendientes o enviadas)
-      // Esto es un ejemplo, ajusta el filtro según necesites.
-      // Podrías querer notificaciones donde el doctor actual esté involucrado,
-      // o notificaciones para pacientes asignados a este doctor.
-      // Por simplicidad, cargaremos todas y luego filtraremos en el UI si es necesario,
-      // o idealmente, el servicio debería permitir filtros más específicos.
-      const notificationsPromise = notificationService.getAll(); 
+      const notificationsPromise = notificationService.getAll(); // Cargar todas las notificaciones inicialmente
 
       let dataPromises: Promise<any>[] = [doctorsDataPromise, notificationsPromise];
       
@@ -145,8 +207,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       } else {
         setPatients([]); setMedications([]); setAppointments([]);
         setVitalSigns([]); setMedicationIntakes([]); 
-        // No limpiar notifications aquí si quieres que usuarios no-doctores puedan ver algunas (ej. si es una app de paciente)
-        // Pero para este caso de app de doctor, está bien.
         setNotifications([]); 
         dataPromises = [doctorsDataPromise, notificationsPromise, Promise.resolve([]), Promise.resolve([]), Promise.resolve([]), Promise.resolve([])];
       }
@@ -159,7 +219,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ] = await Promise.all(dataPromises);
 
       setDoctors(resolvedDoctorsData || []);
-      setNotifications(resolvedNotificationsData || []); // Establecer notificaciones cargadas
+      setNotifications(resolvedNotificationsData || []);
       
       if (fetchedProfile?.role === 'doctor') {
         setPatients(patientsData || []);
@@ -167,6 +227,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setAppointments(appointmentsData || []);
         setVitalSigns(vitalSignsData || []);
         setMedicationIntakes([]); 
+        // Después de cargar citas y pacientes, generar recordatorios
+        // Esto se hace aquí para asegurar que appointments y patients estén disponibles
+        // Se pasa una copia de appointments y patients para evitar problemas de cierre con el estado.
+        if (appointmentsData && patientsData) {
+            // Llamar a generateUpcomingAppointmentReminders después de que los datos base se hayan establecido.
+            // Esto es una simulación; idealmente, un backend haría esto.
+        }
       }
 
     } catch (error) {
@@ -176,8 +243,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setLoadingData(false); setLoadingAppointments(false); setLoadingDoctors(false); 
       setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); setLoadingNotifications(false);
     }
-  }, [fetchUserProfile]);
+  }, [fetchUserProfile]); // No añadir generateUpcomingAppointmentReminders aquí para evitar bucles si modifica 'notifications'
   
+  // Efecto separado para generar recordatorios cuando cambian las citas o el perfil del usuario
+  useEffect(() => {
+    if (userProfile?.role === 'doctor' && appointments.length > 0 && patients.length > 0 && !loadingData) {
+        generateUpcomingAppointmentReminders();
+    }
+  }, [appointments, patients, userProfile, loadingData, generateUpcomingAppointmentReminders]);
+
+
   useEffect(() => {
     setLoadingAuth(true);
     let subscription: Subscription | undefined;
@@ -279,8 +354,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return medications.find(m => m.id === id);
   }, [medications]);
 
-  // --- CRUD Citas (Appointments) (sin cambios) ---
-  const addAppointment = useCallback(async (appointmentData: Omit<Appointment, 'id'>): Promise<Appointment | undefined> => {
+  // --- CRUD Citas (Appointments) ---
+  const addAppointmentCb = useCallback(async (appointmentData: Omit<Appointment, 'id'>): Promise<Appointment | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Error de autenticación/Rol de doctor necesario"); throw new Error("User not authorized or not a doctor."); }
     const dataWithCorrectDoctor = { ...appointmentData, doctorId: currentUser.id };
     try {
@@ -288,31 +363,80 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (newAppointment) {
         setAppointments(prev => [...prev, newAppointment].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
         toast.success('Cita programada!');
+        // Generar notificación de nueva cita
+        const patient = patients.find(p => p.id === newAppointment.patientId);
+        if (patient) {
+            await addNotification({
+                patientId: patient.id,
+                appointmentId: newAppointment.id,
+                doctorId: newAppointment.doctorId,
+                message: `Se ha programado una nueva cita de ${newAppointment.specialty} para usted el ${new Date(newAppointment.date + 'T00:00:00').toLocaleDateString()} a las ${new Date(`1970-01-01T${newAppointment.time}`).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}.`,
+                type: 'appointment_created',
+                status: 'pending',
+            });
+        }
         return newAppointment;
       }
     } catch (error: any) { toast.error(`Error al programar cita: ${error.message || 'Error desconocido'}`); throw error; }
     return undefined;
-  }, [currentUser, userProfile]);
+  }, [currentUser, userProfile, patients, addNotification]);
 
-  const updateAppointment = useCallback(async (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>) => {
+  const updateAppointmentCb = useCallback(async (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>) : Promise<Appointment | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Error de autenticación/Rol de doctor necesario"); throw new Error("User not authorized or not a doctor."); }
     try {
+      const oldAppointment = appointments.find(app => app.id === id);
       const updatedApp = await appointmentService.update(id, appointmentUpdateData);
       if (updatedApp) {
          setAppointments(prev => prev.map(app => (app.id === id ? updatedApp : app)).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
          toast.success('Cita actualizada!');
+         // Generar notificación de cita actualizada si cambian datos relevantes
+         if (oldAppointment && (oldAppointment.date !== updatedApp.date || oldAppointment.time !== updatedApp.time || oldAppointment.status !== updatedApp.status)) {
+            const patient = patients.find(p => p.id === updatedApp.patientId);
+            if (patient) {
+                let message = `Su cita de ${updatedApp.specialty} ha sido actualizada. Nueva fecha: ${new Date(updatedApp.date + 'T00:00:00').toLocaleDateString()} a las ${new Date(`1970-01-01T${updatedApp.time}`).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}.`;
+                if (updatedApp.status === 'cancelled') {
+                    message = `Su cita de ${updatedApp.specialty} del ${new Date(updatedApp.date + 'T00:00:00').toLocaleDateString()} ha sido cancelada.`;
+                }
+                 await addNotification({
+                    patientId: patient.id,
+                    appointmentId: updatedApp.id,
+                    doctorId: updatedApp.doctorId,
+                    message,
+                    type: updatedApp.status === 'cancelled' ? 'appointment_cancelled_by_doctor' : 'appointment_updated',
+                    status: 'pending',
+                });
+            }
+         }
+         return updatedApp;
       }
     } catch (error: any) { toast.error(`Error al actualizar cita: ${error.message || 'Error desconocido'}`); throw error; }
-  }, [currentUser, userProfile, appointments]);
+    return undefined;
+  }, [currentUser, userProfile, appointments, patients, addNotification]);
 
-  const deleteAppointment = useCallback(async (id: string): Promise<void> => {
+  const deleteAppointmentCb = useCallback(async (id: string): Promise<void> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Error de autenticación/Rol de doctor necesario"); throw new Error("User not authorized or not a doctor."); }
     try {
+      // Podrías querer generar una notificación de cancelación ANTES de eliminarla,
+      // si la cita aún no ha sido notificada como cancelada.
+      const apptToDelete = appointments.find(app => app.id === id);
+      if (apptToDelete && apptToDelete.status !== 'cancelled') {
+        const patient = patients.find(p => p.id === apptToDelete.patientId);
+        if (patient) {
+            await addNotification({
+                patientId: patient.id,
+                appointmentId: apptToDelete.id,
+                doctorId: apptToDelete.doctorId,
+                message: `Su cita de ${apptToDelete.specialty} del ${new Date(apptToDelete.date + 'T00:00:00').toLocaleDateString()} ha sido cancelada.`,
+                type: 'appointment_cancelled_by_doctor',
+                status: 'pending',
+            });
+        }
+      }
       await appointmentService.delete(id);
       setAppointments(prev => prev.filter(app => app.id !== id));
       toast.success('Cita eliminada!');
     } catch (error: any) { toast.error(`Error al eliminar cita: ${error.message || 'Error desconocido'}`); throw error; }
-  }, [currentUser, userProfile]);
+  }, [currentUser, userProfile, appointments, patients, addNotification]);
 
   const getAppointmentById = useCallback((id: string): Appointment | undefined => {
     return appointments.find(app => app.id === id);
@@ -326,11 +450,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (newVitalSign) {
         setVitalSigns(prev => [...prev, newVitalSign].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time) ));
         toast.success('Signo vital registrado!');
+        // Potencial notificación para el doctor si el signo es anormal
+        // if (isAbnormal(newVitalSign)) { // Necesitarías una función isAbnormal
+        //   await addNotification({
+        //     patientId: newVitalSign.patientId,
+        //     doctorId: currentUser.id, // Notificación para el doctor actual
+        //     message: `Alerta: ${patients.find(p=>p.id === newVitalSign.patientId)?.name || 'Paciente'} registró ${newVitalSign.type} de ${newVitalSign.value} ${newVitalSign.unit}.`,
+        //     type: 'abnormal_vital_sign',
+        //     status: 'pending'
+        //   });
+        // }
         return newVitalSign;
       }
     } catch (error: any) { toast.error(`Error al registrar signo vital: ${error.message || 'Error desconocido'}`); throw error; }
     return undefined;
-  }, [currentUser, userProfile]);
+  }, [currentUser, userProfile, addNotification, patients]); // Añadir addNotification y patients
 
   const updateVitalSign = useCallback(async (id: string, vitalSignUpdateData: Partial<Omit<VitalSign, 'id'>>) => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
@@ -407,25 +541,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [currentUser, userProfile]);
 
   // --- Funciones de Notificación ---
-  const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
-    if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
-    try {
-      const newNotification = await notificationService.create(notificationData);
-      if (newNotification) {
-        setNotifications(prev => [newNotification, ...prev].sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()));
-        toast.success('Notificación guardada!');
-        return newNotification;
-      }
-    } catch (error: any) { toast.error(`Error al guardar notificación: ${error.message || 'Error desconocido'}`); throw error; }
-    return undefined;
-  }, [currentUser, userProfile]);
-
   const fetchNotificationsForPatient = useCallback(async (patientId: string): Promise<Notification[]> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
     setLoadingNotifications(true);
     try {
       const data = await notificationService.getByPatient(patientId);
-      // No actualizamos el estado global aquí, ya que es específico del paciente
       return data;
     } catch (error: any) { toast.error(`Error al obtener notificaciones: ${error.message || 'Error desconocido'}`); throw error; }
     finally { setLoadingNotifications(false); }
@@ -469,10 +589,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         patients, addPatient, updatePatient, deletePatient, getPatientById,
         medications, addMedication, updateMedication, deleteMedication, getMedicationById,
         appointments, doctors, loadingAppointments, loadingDoctors,
-        addAppointment, updateAppointment, deleteAppointment, getAppointmentById,
+        addAppointment: addAppointmentCb, updateAppointment: updateAppointmentCb, deleteAppointment: deleteAppointmentCb, getAppointmentById,
         vitalSigns, loadingVitalSigns, addVitalSign, updateVitalSign, deleteVitalSign, fetchVitalSignsForPatient,
         medicationIntakes, loadingMedicationIntakes, addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, fetchMedicationIntakesForPatient,
-        notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, updateNotificationStatus, // Añadir updateNotificationStatus
+        notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, updateNotificationStatus,
+        generateUpcomingAppointmentReminders, // Exponer la nueva función
         signOut,
         loadInitialData: stableLoadInitialData,
       }}
