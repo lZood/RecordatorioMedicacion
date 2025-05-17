@@ -56,7 +56,7 @@ interface AppContextType {
   fetchMedicationIntakesForPatient: (patientId: string) => Promise<MedicationIntakeWithMedication[]>;
 
   signOut: () => Promise<void>;
-  // loadInitialData no se expone directamente si la carga es interna y automática
+  // loadInitialData ya no se expone, es manejada internamente
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -64,9 +64,9 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [loadingAuth, setLoadingAuth] = useState(true); // Carga inicial de sesión de Supabase
-  const [loadingData, setLoadingData] = useState(false); // Carga general de datos de la app (pacientes, meds, etc.)
-  const [loadingProfile, setLoadingProfile] = useState(false); // Carga del perfil del usuario actual
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [loadingData, setLoadingData] = useState(false); 
+  const [loadingProfile, setLoadingProfile] = useState(false);
 
   const [patients, setPatients] = useState<Patient[]>([]);
   const [medications, setMedications] = useState<Medication[]>([]);
@@ -81,6 +81,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(false);
 
   const previousAuthUserIdRef = useRef<string | null | undefined>(undefined);
+  const isMountedRef = useRef(true); // Ref para controlar si el componente está montado
+
+  useEffect(() => { // Cleanup para isMountedRef
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     if (!userId) { 
@@ -103,33 +111,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []); // Estable
 
-  const internalLoadInitialData = useCallback(async (authUser: User | null, existingProfile?: UserProfile | null) => {
+  const internalLoadInitialData = useCallback(async (authUser: User | null) => {
+    if (!isMountedRef.current) return;
+
     if (!authUser) {
       console.log("AppContext: No authUser for internalLoadInitialData, clearing all app states.");
-      if (isMountedRef.current) {
-        setUserProfile(null);
-        setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
-        setVitalSigns([]); setMedicationIntakes([]);
-        setLoadingData(false); setLoadingAppointments(false); setLoadingDoctors(false); 
-        setLoadingVitalSigns(false); setLoadingMedicationIntakes(false);
-      }
+      setUserProfile(null);
+      setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
+      setVitalSigns([]); setMedicationIntakes([]);
+      setLoadingData(false); setLoadingAppointments(false); setLoadingDoctors(false); 
+      setLoadingVitalSigns(false); setLoadingMedicationIntakes(false);
       return;
     }
     console.log("AppContext: AuthUser present, attempting to load initial data for:", authUser.id);
     
-    // Usar el perfil existente si se pasó y coincide, sino, obtenerlo.
-    const profileToUse = (existingProfile && existingProfile.id === authUser.id) ? existingProfile : await fetchUserProfile(authUser.id);
-    if (!isMountedRef.current) return; // Comprobar después de await
+    const fetchedProfile = await fetchUserProfile(authUser.id);
+    if (!isMountedRef.current) return;
 
-    if (isMountedRef.current) {
-        setLoadingData(true); setLoadingAppointments(true); setLoadingDoctors(true); 
-        setLoadingVitalSigns(true); setLoadingMedicationIntakes(true); // Aunque no se carguen globalmente, resetear loader
-    }
+    setLoadingData(true); setLoadingAppointments(true); setLoadingDoctors(true); 
+    setLoadingVitalSigns(true); setLoadingMedicationIntakes(true);
     try {
       const doctorsDataPromise = profileService.getAllDoctors(); 
       let dataPromises: Promise<any>[] = [doctorsDataPromise];
       
-      if (profileToUse?.role === 'doctor') {
+      if (fetchedProfile?.role === 'doctor') {
         console.log("AppContext: User is a doctor, queueing doctor-specific data loading.");
         dataPromises = [
           ...dataPromises,
@@ -139,8 +144,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           vitalSignService.getAll(),
         ];
       } else {
-        console.log(`AppContext: User role is not 'doctor' (role: ${profileToUse?.role}). Skipping doctor-specific data sets.`);
-        if (isMountedRef.current) {
+        console.log(`AppContext: User role is not 'doctor' (role: ${fetchedProfile?.role}). Skipping doctor-specific data sets.`);
+        if(isMountedRef.current) {
             setPatients([]); setMedications([]); setAppointments([]);
             setVitalSigns([]); setMedicationIntakes([]);
         }
@@ -158,7 +163,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       if (isMountedRef.current) {
         setDoctors(resolvedDoctorsData || []);
-        if (profileToUse?.role === 'doctor') {
+        if (fetchedProfile?.role === 'doctor') {
             setPatients(patientsData || []);
             setMedications(medicationsData || []);
             setAppointments(appointmentsData || []);
@@ -175,12 +180,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setLoadingVitalSigns(false); setLoadingMedicationIntakes(false);
       }
     }
-  }, [fetchUserProfile]); // Depende de fetchUserProfile (estable)
+  }, [fetchUserProfile]);
   
-  const isMountedRef = useRef(true); // Ref para controlar si el componente está montado
-
   useEffect(() => {
-    isMountedRef.current = true;
     setLoadingAuth(true);
     let subscription: Subscription | undefined;
 
@@ -191,7 +193,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       if (sessionError) {
         console.error("AppContext: Error getting initial session:", sessionError);
-        toast.error("Error checking session. Please refresh.");
+        if (isMountedRef.current) toast.error("Error checking session. Please refresh.");
         if (isMountedRef.current) setLoadingAuth(false);
         return;
       }
@@ -199,9 +201,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const authUser = session?.user ?? null;
       console.log("AppContext: Initial session user:", authUser?.id);
       if (isMountedRef.current) setCurrentUser(authUser);
-      previousAuthUserIdRef.current = authUser?.id;
+      previousAuthUserIdRef.current = authUser?.id; // Importante: inicializar la referencia
       
-      await internalLoadInitialData(authUser); // Carga datos basados en la sesión inicial
+      // internalLoadInitialData se llamará por onAuthStateChange con INITIAL_SESSION o SIGNED_IN
+      // si authUser existe, o con SIGNED_OUT si authUser es null.
+      // Para asegurar que los datos se carguen si onAuthStateChange no se dispara inmediatamente
+      // o si el evento inicial no es suficiente, podemos llamarlo aquí.
+      // Sin embargo, esto podría llevar a doble carga si onAuthStateChange también lo llama.
+      // La estrategia de onAuthStateChange es más robusta.
+      // El principal problema es que onAuthStateChange puede dispararse múltiples veces.
+      if (authUser) {
+          await internalLoadInitialData(authUser);
+      } else {
+          await internalLoadInitialData(null); // Limpiar si no hay sesión
+      }
       if (isMountedRef.current) setLoadingAuth(false);
     };
 
@@ -210,43 +223,47 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const { data: authListenerData } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (!isMountedRef.current) return;
-        console.log("AppContext: Auth state change received. Event:", _event, "Session User ID:", session?.user?.id);
 
         const newAuthUser = session?.user ?? null;
         const newAuthUserId = newAuthUser?.id;
+        const oldAuthUserId = previousAuthUserIdRef.current;
 
-        if (isMountedRef.current) setCurrentUser(newAuthUser); // Siempre actualizar currentUser
+        console.log("AppContext: Auth state change received. Event:", _event, "New User ID:", newAuthUserId, "Old User ID:", oldAuthUserId);
 
-        if (newAuthUserId !== previousAuthUserIdRef.current) {
-          console.log(`AppContext: User ID changed or critical event. Old: ${previousAuthUserIdRef.current}, New: ${newAuthUserId}. Event: ${_event}. Reloading all data.`);
-          previousAuthUserIdRef.current = newAuthUserId;
-          await internalLoadInitialData(newAuthUser);
-        } else if (_event === 'USER_UPDATED' && newAuthUser) {
+        if (isMountedRef.current) setCurrentUser(newAuthUser); // Siempre actualizar el estado de currentUser
+
+        if (newAuthUserId !== oldAuthUserId) {
+          console.log(`AppContext: User ID changed or critical event SIGNED_IN/SIGNED_OUT. Old: ${oldAuthUserId}, New: ${newAuthUserId}. Event: ${_event}. Reloading all data.`);
+          previousAuthUserIdRef.current = newAuthUserId; // Actualizar la referencia ANTES de la carga de datos
+          if (isMountedRef.current) await internalLoadInitialData(newAuthUser);
+        } else if (newAuthUser && _event === 'USER_UPDATED') {
+          // Usuario es el mismo, pero sus metadatos (ej. email verificado, contraseña cambiada) podrían haber cambiado
           console.log("AppContext: Event USER_UPDATED for current user. Refetching profile.");
-          await fetchUserProfile(newAuthUser.id);
-        } else if ((_event === 'TOKEN_REFRESHED' || _event === 'INITIAL_SESSION') && newAuthUser) {
-          console.log(`AppContext: Event ${_event} for current user ${newAuthUserId}. Ensuring profile is loaded if not already.`);
-          if (!userProfile || userProfile.id !== newAuthUserId) { // Si el perfil no está o es de otro usuario
+          if (isMountedRef.current) await fetchUserProfile(newAuthUser.id);
+        } else if (newAuthUser && (_event === 'TOKEN_REFRESHED' || (_event === 'INITIAL_SESSION' && newAuthUserId === oldAuthUserId))) {
+          // Token refrescado o sesión inicial confirmada para el MISMO usuario.
+          // No recargar todos los datos, solo asegurar que el perfil esté cargado si no lo estaba.
+          console.log(`AppContext: Event ${_event} for current user ${newAuthUserId}. Ensuring profile is loaded if not already, and currentUser object is up-to-date.`);
+          // Actualizar currentUser por si el objeto User en sí mismo cambió (ej. nuevo token)
+          // setCurrentUser ya lo hace arriba.
+          if (isMountedRef.current && (!userProfile || userProfile.id !== newAuthUserId)) {
+            console.log("AppContext: Profile missing or for different user, fetching profile.");
             await fetchUserProfile(newAuthUser.id);
           } else {
             console.log("AppContext: Profile already loaded for current user. No full data reload needed for this event.");
           }
-        } else if (_event === 'SIGNED_OUT') { // Manejo explícito de SIGNED_OUT si no hubo cambio de ID (de null a null)
-            console.log("AppContext: Event SIGNED_OUT. Ensuring data is cleared.");
-            await internalLoadInitialData(null);
         }
       }
     );
     subscription = authListenerData.subscription;
 
     return () => {
-      isMountedRef.current = false;
       console.log("AppContext: Unsubscribing from onAuthStateChange.");
       subscription?.unsubscribe();
     };
   }, [internalLoadInitialData, fetchUserProfile]); // Dependencias estables
 
-  // --- CRUD Pacientes --- (envueltos en useCallback)
+  // --- CRUD Pacientes ---
   const addPatient = useCallback(async (patientData: Omit<Patient, 'id' | 'createdAt' | 'doctorId'>): Promise<Patient | undefined> => {
     if (!currentUser || !userProfile || userProfile.role !== 'doctor') { toast.error("Only doctors can add patients."); throw new Error("User not authorized or not a doctor."); }
     try {
@@ -283,7 +300,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return patients.find(p => p.id === id);
   }, [patients]);
 
-  // --- CRUD Medicamentos --- (envueltos en useCallback)
+  // --- CRUD Medicamentos ---
   const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>): Promise<Medication | undefined> => {
     if (!currentUser || !userProfile || userProfile.role !== 'doctor') { toast.error("Only doctors can add medications."); throw new Error("User not authorized or not a doctor."); }
     if (!currentUser.id) { toast.error("Doctor ID is missing. Cannot add medication."); throw new Error("Doctor ID is missing.");}
@@ -329,7 +346,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return medications.find(m => m.id === id);
   }, [medications]);
 
-  // --- CRUD Citas (Appointments) --- (envueltos en useCallback)
+  // --- CRUD Citas (Appointments) ---
   const addAppointment = useCallback(async (appointmentData: Omit<Appointment, 'id'>): Promise<Appointment | undefined> => {
     if (!currentUser || !userProfile || userProfile.role !== 'doctor') { toast.error("Auth error/Doctor role needed"); throw new Error("User not authorized or not a doctor."); }
     const dataWithCorrectDoctor = { ...appointmentData, doctorId: currentUser.id };
@@ -391,7 +408,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return appointments.find(app => app.id === id);
   }, [appointments]);
 
-  // --- CRUD para Signos Vitales (VitalSigns) --- (envueltos en useCallback)
+  // --- CRUD para Signos Vitales (VitalSigns) ---
   const addVitalSign = useCallback(async (vitalSignData: Omit<VitalSign, 'id'>): Promise<VitalSign | undefined> => {
     if (!currentUser || !userProfile || userProfile.role !== 'doctor') { toast.error("Auth required/Doctor role needed"); throw new Error("Not authorized."); }
     try {
@@ -438,7 +455,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     finally { if (isMountedRef.current) setLoadingVitalSigns(false); }
   }, [currentUser, userProfile]);
 
-  // --- CRUD para Tomas de Medicamentos (MedicationIntakes) --- (envueltos en useCallback)
+  // --- CRUD para Tomas de Medicamentos (MedicationIntakes) ---
   const addMedicationIntake = useCallback(async (intakeData: Omit<MedicationIntake, 'id' | 'createdAt' | 'updatedAt'>): Promise<MedicationIntakeWithMedication | undefined> => {
     if (!currentUser || !userProfile || userProfile.role !== 'doctor') { toast.error("Auth required/Doctor role needed"); throw new Error("Not authorized."); }
     try {
@@ -506,8 +523,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []);
 
-  const stableLoadInitialData = useCallback(internalLoadInitialData, [internalLoadInitialData]);
-
   return (
     <AppContext.Provider
       value={{
@@ -519,7 +534,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         vitalSigns, loadingVitalSigns, addVitalSign, updateVitalSign, deleteVitalSign, fetchVitalSignsForPatient,
         medicationIntakes, loadingMedicationIntakes, addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, fetchMedicationIntakesForPatient,
         signOut,
-        loadInitialData: stableLoadInitialData,
+        loadInitialData: internalLoadInitialData, // Exponer la versión interna memoizada
       }}
     >
       {children}
