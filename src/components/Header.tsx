@@ -1,12 +1,14 @@
 // src/components/Header.tsx
 import React, { useState } from 'react';
-import { Bell, Search, User as UserIcon, ChevronDown } from 'lucide-react'; // ChevronDown para el dropdown
+import { Bell, Search, User as UserIcon, ChevronDown } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
-import { Link } from 'react-router-dom'; // Para enlazar a una futura página de notificaciones
+import { Link, useNavigate } from 'react-router-dom'; // Importar useNavigate
+import toast from 'react-hot-toast'; // Importar toast
 
 const Header: React.FC = () => {
   const { currentUser, userProfile, loadingProfile, loadingAuth, notifications, updateNotificationStatus } = useAppContext();
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
+  const navigate = useNavigate(); // Hook para navegación
 
   const isLoadingInfo = loadingAuth || (currentUser && loadingProfile);
 
@@ -19,24 +21,20 @@ const Header: React.FC = () => {
     .substring(0, 2)
     .toUpperCase() || <UserIcon size={16} />;
 
-  // Contar notificaciones pendientes (o no leídas, según tu lógica)
   const unreadNotificationsCount = notifications.filter(n => n.status === 'pending' || n.status === 'sent').length;
   const recentNotifications = notifications
-    .filter(n => n.status === 'pending' || n.status === 'sent') // Mostrar pendientes o recién enviadas
+    .filter(n => n.status === 'pending' || n.status === 'sent')
     .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())
-    .slice(0, 5); // Mostrar las 5 más recientes
+    .slice(0, 5);
 
   const handleMarkAsRead = async (notificationId: string) => {
     if (userProfile?.role === 'doctor') {
       await updateNotificationStatus(notificationId, 'read');
-      // El estado de notifications en AppContext se actualizará, lo que debería re-renderizar.
     }
   };
 
-
   return (
     <header className="bg-white border-b border-gray-200 py-3 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
-      {/* Search Bar */}
       <div className="relative w-full max-w-xs sm:max-w-sm md:max-w-md">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
         <input
@@ -46,9 +44,7 @@ const Header: React.FC = () => {
         />
       </div>
       
-      {/* Right side icons and user info */}
       <div className="flex items-center space-x-3 md:space-x-4">
-        {/* Notifications Bell */}
         <div className="relative">
           <button 
             onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
@@ -63,11 +59,10 @@ const Header: React.FC = () => {
             )}
           </button>
 
-          {/* Notifications Dropdown */}
           {showNotificationsDropdown && (
             <div 
               className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-md shadow-xl z-20 border border-gray-200"
-              onMouseLeave={() => setShowNotificationsDropdown(false)} // Opcional: cerrar al quitar el mouse
+              onMouseLeave={() => setShowNotificationsDropdown(false)}
             >
               <div className="p-3 border-b border-gray-200">
                 <h3 className="text-sm font-semibold text-gray-700">Notificaciones Recientes</h3>
@@ -77,7 +72,14 @@ const Header: React.FC = () => {
                   {recentNotifications.map(notification => (
                     <li key={notification.id} className="border-b border-gray-100 last:border-b-0">
                       <div className={`p-3 hover:bg-gray-50 cursor-pointer ${notification.status === 'pending' || notification.status === 'sent' ? 'bg-indigo-50' : ''}`}
-                           onClick={() => handleMarkAsRead(notification.id)} // Marcar como leída al hacer clic
+                           onClick={() => {
+                             handleMarkAsRead(notification.id);
+                             // Opcional: navegar a la página de detalles de la cita si es una notificación de cita
+                             // if (notification.type === 'appointment_reminder' && notification.appointmentId) {
+                             //   navigate(`/appointments/${notification.appointmentId}`);
+                             //   setShowNotificationsDropdown(false);
+                             // }
+                           }}
                       >
                         <p className="text-xs text-gray-500 mb-0.5">
                           {notification.type === 'appointment_reminder' ? 'Recordatorio de Cita' : 'Notificación'}
@@ -95,23 +97,18 @@ const Header: React.FC = () => {
                 <p className="p-4 text-sm text-gray-500 text-center">No tiene notificaciones nuevas.</p>
               )}
               <div className="p-2 border-t border-gray-200 text-center">
-                {/* En el futuro, podrías enlazar a una página /notifications */}
-                <button 
-                  onClick={() => {
-                    setShowNotificationsDropdown(false); 
-                    // navigate('/notifications'); // Si tienes una página de notificaciones
-                    toast.info("Página de todas las notificaciones aún no implementada.");
-                  }} 
+                <Link
+                  to="/notifications" // Enlace a la nueva página
+                  onClick={() => setShowNotificationsDropdown(false)} 
                   className="text-xs text-indigo-600 hover:underline"
                 >
                   Ver todas las notificaciones
-                </button>
+                </Link>
               </div>
             </div>
           )}
         </div>
         
-        {/* User Profile */}
         {currentUser ? (
           <div className="flex items-center space-x-2 cursor-pointer p-1 hover:bg-gray-100 rounded-lg transition-colors">
             <div className="w-9 h-9 bg-indigo-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
