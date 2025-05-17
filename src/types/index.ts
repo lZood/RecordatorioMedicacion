@@ -5,7 +5,7 @@ export interface Patient {
   name: string;
   phone: string;
   address: string;
-  email: string; // Asegúrate de que el email esté aquí si lo usarás para notificaciones
+  email: string;
   createdAt: string;
   doctorId?: string;
 }
@@ -66,7 +66,7 @@ export interface VitalSign {
 export interface AppointmentPatientInfo {
   id: string;
   name: string;
-  email?: string; // Añadir email aquí también si se obtiene anidado
+  email?: string;
 }
 export interface AppointmentDoctorInfo {
   id: string;
@@ -97,19 +97,41 @@ export interface Report {
   data: any;
 }
 
-// NUEVA INTERFAZ PARA NOTIFICACIONES
 export interface Notification {
   id: string;
-  patientId: string;
-  appointmentId?: string | null; // Opcional, si la notificación está ligada a una cita
+  patientId: string; // A quién se dirige la notificación (si es específica del paciente)
+  appointmentId?: string | null;
+  doctorId?: string | null; // Quién generó o a quién está dirigida (si es para el doctor)
   message: string;
-  type: string; // 'appointment_reminder', 'medication_reminder', 'general_alert', etc.
-  status: 'pending' | 'sent' | 'read' | 'archived' | string; // Permite otros estados si es necesario
-  sendAt?: string | null; // Fecha ISO para envío programado
+  /**
+   * Tipos de notificación:
+   * - 'appointment_reminder': Recordatorio manual de cita enviado por el doctor.
+   * - 'appointment_reminder_24h': Recordatorio automático de cita próxima (24h).
+   * - 'appointment_created': Nueva cita creada para un paciente.
+   * - 'appointment_updated': Cita existente actualizada.
+   * - 'appointment_cancelled_by_doctor': Cita cancelada por el doctor.
+   * - 'patient_appointment_cancellation': Paciente canceló una cita (notificación para el doctor).
+   * - 'abnormal_vital_sign': Paciente registró un signo vital anormal (notificación para el doctor).
+   * - 'low_medication_adherence': Paciente con baja adherencia (notificación para el doctor).
+   * - 'medication_expiring_soon_stock': Medicamento en stock del doctor por vencer.
+   * - 'general_alert': Alerta general para el doctor o paciente.
+   */
+  type: 
+    | 'appointment_reminder' 
+    | 'appointment_reminder_24h'
+    | 'appointment_created'
+    | 'appointment_updated'
+    | 'appointment_cancelled_by_doctor'
+    | 'patient_appointment_cancellation' // Para el doctor
+    | 'abnormal_vital_sign' // Para el doctor
+    | 'low_medication_adherence' // Para el doctor
+    | 'medication_expiring_soon_stock' // Para el doctor
+    | 'general_alert'
+    | string; // Permite otros tipos personalizados
+  status: 'pending' | 'sent' | 'read' | 'archived' | string;
+  sendAt?: string | null; 
   createdAt?: string;
   updatedAt?: string;
-  // Podrías añadir detalles del paciente o cita si los obtienes anidados
   patient?: Pick<Patient, 'id' | 'name' | 'email'> | null;
   appointment?: Pick<Appointment, 'id' | 'date' | 'time' | 'specialty'> | null;
 }
-
