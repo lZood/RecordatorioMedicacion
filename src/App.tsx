@@ -1,3 +1,4 @@
+// src/App.tsx
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -15,6 +16,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import MedicationDetails from './pages/MedicationDetails';
 import AppointmentDetails from './pages/AppointmentDetails';
 import SignUp from './pages/SignUp';
+import NotificationsPage from './pages/NotificationsPage'; // Importar la nueva página
 
 function App() {
   return (
@@ -38,6 +40,7 @@ function App() {
               <Route path="appointments/:id" element={<AppointmentDetails />} />
               <Route path="vitals" element={<VitalSigns />} />
               <Route path="reports" element={<Reports />} />
+              <Route path="notifications" element={<NotificationsPage />} /> {/* Nueva ruta */}
               {/* Otras rutas protegidas dentro de Layout pueden ir aquí */}
             </Route> {/* Cierre de la ruta del Layout */}
           </Route> {/* Cierre de la ruta protegida principal */}
