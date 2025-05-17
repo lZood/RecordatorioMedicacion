@@ -5,7 +5,7 @@ export interface Patient {
   name: string;
   phone: string;
   address: string;
-  email: string;
+  email: string; // Asegúrate de que el email esté aquí si lo usarás para notificaciones
   createdAt: string;
   doctorId?: string;
 }
@@ -16,12 +16,11 @@ export interface Medication {
   activeIngredient: string;
   expirationDate: string;
   description?: string;
-  doctorId: string; // Made doctorId required for a Medication
+  doctorId: string; 
   createdAt?: string;
   updatedAt?: string;
 }
 
-// Perfil de usuario genérico
 export interface UserProfile {
   id: string;
   name: string;
@@ -32,13 +31,11 @@ export interface UserProfile {
   updatedAt?: string;
 }
 
-// Tipo específico para Doctor
 export interface Doctor extends UserProfile {
   role: 'doctor';
   specialty: string;
 }
 
-// Tipo específico para Paciente (perfil)
 export interface PatientProfile extends UserProfile {
   role: 'patient';
 }
@@ -69,6 +66,7 @@ export interface VitalSign {
 export interface AppointmentPatientInfo {
   id: string;
   name: string;
+  email?: string; // Añadir email aquí también si se obtiene anidado
 }
 export interface AppointmentDoctorInfo {
   id: string;
@@ -98,3 +96,20 @@ export interface Report {
   date: string;
   data: any;
 }
+
+// NUEVA INTERFAZ PARA NOTIFICACIONES
+export interface Notification {
+  id: string;
+  patientId: string;
+  appointmentId?: string | null; // Opcional, si la notificación está ligada a una cita
+  message: string;
+  type: string; // 'appointment_reminder', 'medication_reminder', 'general_alert', etc.
+  status: 'pending' | 'sent' | 'read' | 'archived' | string; // Permite otros estados si es necesario
+  sendAt?: string | null; // Fecha ISO para envío programado
+  createdAt?: string;
+  updatedAt?: string;
+  // Podrías añadir detalles del paciente o cita si los obtienes anidados
+  patient?: Pick<Patient, 'id' | 'name' | 'email'> | null;
+  appointment?: Pick<Appointment, 'id' | 'date' | 'time' | 'specialty'> | null;
+}
+
