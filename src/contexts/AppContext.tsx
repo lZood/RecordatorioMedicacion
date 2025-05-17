@@ -57,6 +57,8 @@ interface AppContextType {
 
   signOut: () => Promise<void>;
   // loadInitialData no se expone directamente si la carga es interna y automática
+  // Si se necesita externamente, se puede añadir la versión estable:
+  // loadInitialData: (user: User | null) => Promise<void>; 
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -153,7 +155,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             setPatients([]); setMedications([]); setAppointments([]);
             setVitalSigns([]); setMedicationIntakes([]);
         }
-        // Asegurar que Promise.all tenga el número correcto de promesas
         dataPromises = [doctorsDataPromise, Promise.resolve([]), Promise.resolve([]), Promise.resolve([]), Promise.resolve([])];
       }
       
@@ -188,34 +189,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [fetchUserProfile]);
   
   useEffect(() => {
-    setLoadingAuth(true);
+    setLoadingAuth(true); // Indicar que la autenticación está en proceso
     let subscription: Subscription | undefined;
 
-    const initialSetup = async () => {
-      console.log("AppContext: Initial setup started.");
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (!isMountedRef.current) return;
+    // Configuración inicial para obtener la sesión actual al cargar la app
+    const initialSessionCheck = async () => {
+        console.log("AppContext: Performing initial session check.");
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (!isMountedRef.current) return;
 
-      if (sessionError) {
-        console.error("AppContext: Error getting initial session:", sessionError);
-        if (isMountedRef.current) toast.error("Error checking session. Please refresh.");
-        if (isMountedRef.current) setLoadingAuth(false);
-        return;
-      }
-
-      const authUser = session?.user ?? null;
-      console.log("AppContext: Initial session user:", authUser?.id);
-      if (isMountedRef.current) setCurrentUser(authUser);
-      previousAuthUserIdRef.current = authUser?.id;
-      
-      // La carga inicial de datos se activará por onAuthStateChange con INITIAL_SESSION
-      // o si el usuario ya está logueado. No es necesario llamarlo dos veces.
-      // await internalLoadInitialData(authUser); // Eliminado para evitar doble carga
-      if (isMountedRef.current) setLoadingAuth(false); // setLoadingAuth después de procesar la sesión inicial
+        if (sessionError) {
+            console.error("AppContext: Error during initial getSession:", sessionError);
+            if (isMountedRef.current) toast.error("Failed to check session.");
+            // No llamar a internalLoadInitialData(null) aquí, onAuthStateChange lo manejará si es necesario
+        } else {
+            const authUser = session?.user ?? null;
+            console.log("AppContext: Initial session check result - User ID:", authUser?.id);
+            setCurrentUser(authUser);
+            previousAuthUserIdRef.current = authUser?.id; // Establecer la referencia inicial
+            await internalLoadInitialData(authUser); // Cargar datos basados en esta sesión inicial
+        }
+        if (isMountedRef.current) setLoadingAuth(false); // Terminar carga de autenticación
     };
 
-    initialSetup(); // Llama a la configuración inicial que obtiene la sesión
+    initialSessionCheck();
 
+    // Suscribirse a cambios en el estado de autenticación
     const { data: authListenerData } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (!isMountedRef.current) return;
@@ -224,39 +223,44 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const newAuthUserId = newAuthUser?.id;
         const oldAuthUserId = previousAuthUserIdRef.current;
 
-        console.log("AppContext: Auth state change. Event:", _event, "NewUID:", newAuthUserId, "OldUID:", oldAuthUserId);
+        console.log("AppContext: onAuthStateChange triggered. Event:", _event, "NewUID:", newAuthUserId, "OldUID:", oldAuthUserId);
 
+        // Siempre actualizar el estado de currentUser para reflejar el estado más reciente de Supabase Auth
         if (isMountedRef.current) setCurrentUser(newAuthUser);
 
         if (newAuthUserId !== oldAuthUserId) {
-          // Esto maneja SIGNED_IN (nuevo usuario) y SIGNED_OUT
+          // El ID del usuario ha cambiado (SIGNED_IN con nuevo usuario, o SIGNED_OUT)
           console.log(`AppContext: User ID changed. Old: ${oldAuthUserId}, New: ${newAuthUserId}. Event: ${_event}. Reloading all data.`);
-          previousAuthUserIdRef.current = newAuthUserId;
+          previousAuthUserIdRef.current = newAuthUserId; // Actualizar la referencia ANTES de la carga
           if (isMountedRef.current) await internalLoadInitialData(newAuthUser);
-        } else if (newAuthUser) { // El usuario es el mismo (newAuthUserId === oldAuthUserId)
+        } else if (newAuthUser) { 
+          // El ID del usuario es el mismo, pero otros eventos ocurrieron
           if (_event === 'USER_UPDATED') {
             console.log("AppContext: Event USER_UPDATED for current user. Refetching profile.");
             if (isMountedRef.current) await fetchUserProfile(newAuthUser.id);
           } else if (_event === 'TOKEN_REFRESHED') {
-            console.log(`AppContext: Event TOKEN_REFRESHED for current user ${newAuthUserId}. currentUser object updated. Profile should be current.`);
-            // No se necesita recargar datos aquí, solo el token cambió. El perfil ya debería estar cargado.
-          } else if (_event === 'INITIAL_SESSION') {
-            // Este evento puede dispararse al inicio o al volver a enfocar la pestaña.
-            // Si el usuario es el mismo, significa que internalLoadInitialData ya se llamó o se está llamando
-            // a través de initialSetup o un SIGNED_IN previo.
-            // Solo recargar el perfil si parece estar desincronizado o faltante.
+            console.log(`AppContext: Event TOKEN_REFRESHED for current user ${newAuthUserId}. No full data reload, profile should be current.`);
+            // Opcional: si el objeto `newAuthUser` es diferente del `currentUser` actual (ej. nuevo token), actualizarlo.
+            // setCurrentUser ya lo hace arriba.
+          } else if (_event === 'INITIAL_SESSION' && oldAuthUserId === newAuthUserId) {
+            // Este evento puede dispararse al volver a enfocar la pestaña para un usuario ya conocido.
+            // La carga inicial de datos ya debería haber ocurrido a través de initialSessionCheck.
+            // Solo recargar el perfil si parece estar desincronizado o faltante, y no está ya cargando.
             console.log(`AppContext: Event INITIAL_SESSION for already known user ${newAuthUserId}. Ensuring profile is loaded if necessary.`);
-            if (isMountedRef.current && (!userProfile || userProfile.id !== newAuthUserId)) {
-                console.log("AppContext: Profile missing or for different user on INITIAL_SESSION, attempting to fetch profile.");
+            if (isMountedRef.current && (!userProfile || userProfile.id !== newAuthUserId) && !loadingProfile) {
+                console.log("AppContext: Profile missing, mismatched, or not loading on INITIAL_SESSION. Fetching profile.");
                 await fetchUserProfile(newAuthUser.id);
-            } else {
-                 console.log("AppContext: Profile already loaded for current user for INITIAL_SESSION. No data reload.");
+            } else if (userProfile && userProfile.id === newAuthUserId) {
+                 console.log("AppContext: Profile already loaded and matches for current user on INITIAL_SESSION. No profile reload.");
+            } else if (loadingProfile) {
+                console.log("AppContext: Profile is already loading for INITIAL_SESSION.");
             }
           }
-        } else if (!newAuthUser && oldAuthUserId) { // SIGNED_OUT explícito (oldAuthUserId tenía valor, newAuthUser es null)
-            console.log("AppContext: User explicitly signed out (event or ID became null). Clearing data.");
-            previousAuthUserIdRef.current = null;
-            if (isMountedRef.current) await internalLoadInitialData(null);
+        }
+        // Asegurar que loadingAuth se establezca a false después del primer procesamiento del estado de auth
+        // Esto ya se hace en initialSessionCheck, pero como fallback si onAuthStateChange es el primero en resolver.
+        if (loadingAuth && isMountedRef.current) {
+            setLoadingAuth(false);
         }
       }
     );
@@ -538,7 +542,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         vitalSigns, loadingVitalSigns, addVitalSign, updateVitalSign, deleteVitalSign, fetchVitalSignsForPatient,
         medicationIntakes, loadingMedicationIntakes, addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, fetchMedicationIntakesForPatient,
         signOut,
-        loadInitialData: internalLoadInitialData, // Exponer la versión interna memoizada, renombrada en la interfaz
+        loadInitialData: internalLoadInitialData, // Exponer la versión interna memoizada
       }}
     >
       {children}
