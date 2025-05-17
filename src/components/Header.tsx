@@ -1,15 +1,17 @@
 // src/components/Header.tsx
-import React from 'react';
-import { Bell, Search, User as UserIcon } from 'lucide-react';
+import React, { useState } from 'react';
+import { Bell, Search, User as UserIcon, ChevronDown } from 'lucide-react'; // ChevronDown para el dropdown
 import { useAppContext } from '../contexts/AppContext';
+import { Link } from 'react-router-dom'; // Para enlazar a una futura página de notificaciones
 
 const Header: React.FC = () => {
-  const { currentUser, userProfile, loadingProfile, loadingAuth } = useAppContext();
+  const { currentUser, userProfile, loadingProfile, loadingAuth, notifications, updateNotificationStatus } = useAppContext();
+  const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
 
   const isLoadingInfo = loadingAuth || (currentUser && loadingProfile);
 
   const displayName = userProfile?.name || currentUser?.user_metadata?.name || "Doctor";
-  const displaySpecialtyOrRole = userProfile?.specialty || (userProfile?.role ? `Role: ${userProfile.role}` : "Specialist");
+  const displaySpecialtyOrRole = userProfile?.specialty || (userProfile?.role ? `Rol: ${userProfile.role}` : "Especialista");
   
   const userInitials = displayName?.split(' ')
     .map(n => n[0])
@@ -17,25 +19,99 @@ const Header: React.FC = () => {
     .substring(0, 2)
     .toUpperCase() || <UserIcon size={16} />;
 
+  // Contar notificaciones pendientes (o no leídas, según tu lógica)
+  const unreadNotificationsCount = notifications.filter(n => n.status === 'pending' || n.status === 'sent').length;
+  const recentNotifications = notifications
+    .filter(n => n.status === 'pending' || n.status === 'sent') // Mostrar pendientes o recién enviadas
+    .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())
+    .slice(0, 5); // Mostrar las 5 más recientes
+
+  const handleMarkAsRead = async (notificationId: string) => {
+    if (userProfile?.role === 'doctor') {
+      await updateNotificationStatus(notificationId, 'read');
+      // El estado de notifications en AppContext se actualizará, lo que debería re-renderizar.
+    }
+  };
+
+
   return (
-    <header className="bg-white border-b border-gray-200 py-3 px-4 md:px-6 flex items-center justify-between">
+    <header className="bg-white border-b border-gray-200 py-3 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
+      {/* Search Bar */}
       <div className="relative w-full max-w-xs sm:max-w-sm md:max-w-md">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
         <input
           type="text"
-          placeholder="Search..."
+          placeholder="Buscar..."
           className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
         />
       </div>
       
+      {/* Right side icons and user info */}
       <div className="flex items-center space-x-3 md:space-x-4">
-        <button className="relative p-2 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
-          <Bell size={20} />
-          <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 rounded-full text-xs text-white flex items-center justify-center border-2 border-white">
-            3 
-          </span>
-        </button>
+        {/* Notifications Bell */}
+        <div className="relative">
+          <button 
+            onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
+            className="relative p-2 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+            aria-label="Notificaciones"
+          >
+            <Bell size={20} />
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 rounded-full text-xs text-white flex items-center justify-center border-2 border-white">
+                {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+              </span>
+            )}
+          </button>
+
+          {/* Notifications Dropdown */}
+          {showNotificationsDropdown && (
+            <div 
+              className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-md shadow-xl z-20 border border-gray-200"
+              onMouseLeave={() => setShowNotificationsDropdown(false)} // Opcional: cerrar al quitar el mouse
+            >
+              <div className="p-3 border-b border-gray-200">
+                <h3 className="text-sm font-semibold text-gray-700">Notificaciones Recientes</h3>
+              </div>
+              {recentNotifications.length > 0 ? (
+                <ul className="max-h-80 overflow-y-auto">
+                  {recentNotifications.map(notification => (
+                    <li key={notification.id} className="border-b border-gray-100 last:border-b-0">
+                      <div className={`p-3 hover:bg-gray-50 cursor-pointer ${notification.status === 'pending' || notification.status === 'sent' ? 'bg-indigo-50' : ''}`}
+                           onClick={() => handleMarkAsRead(notification.id)} // Marcar como leída al hacer clic
+                      >
+                        <p className="text-xs text-gray-500 mb-0.5">
+                          {notification.type === 'appointment_reminder' ? 'Recordatorio de Cita' : 'Notificación'}
+                           - <span className="capitalize">{notification.status}</span>
+                        </p>
+                        <p className="text-sm text-gray-800 leading-tight">{notification.message}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {new Date(notification.createdAt!).toLocaleString(navigator.language || 'es-ES', { dateStyle: 'short', timeStyle: 'short'})}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="p-4 text-sm text-gray-500 text-center">No tiene notificaciones nuevas.</p>
+              )}
+              <div className="p-2 border-t border-gray-200 text-center">
+                {/* En el futuro, podrías enlazar a una página /notifications */}
+                <button 
+                  onClick={() => {
+                    setShowNotificationsDropdown(false); 
+                    // navigate('/notifications'); // Si tienes una página de notificaciones
+                    toast.info("Página de todas las notificaciones aún no implementada.");
+                  }} 
+                  className="text-xs text-indigo-600 hover:underline"
+                >
+                  Ver todas las notificaciones
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
         
+        {/* User Profile */}
         {currentUser ? (
           <div className="flex items-center space-x-2 cursor-pointer p-1 hover:bg-gray-100 rounded-lg transition-colors">
             <div className="w-9 h-9 bg-indigo-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
@@ -51,18 +127,18 @@ const Header: React.FC = () => {
                 </p>
               </div>
             )}
-            {isLoadingInfo && !userProfile && ( // Muestra placeholder si el perfil está cargando y aún no está disponible
+            {isLoadingInfo && !userProfile && ( 
                  <div className="hidden md:block">
                     <div className="h-4 bg-gray-200 rounded w-24 mb-1 animate-pulse"></div>
                     <div className="h-3 bg-gray-200 rounded w-16 animate-pulse"></div>
                 </div>
             )}
-             {!isLoadingInfo && !userProfile && currentUser && ( // Si hay auth user pero no perfil (error o no es doctor)
+             {!isLoadingInfo && !userProfile && currentUser && ( 
                  <div className="hidden md:block">
                     <p className="text-sm font-semibold text-gray-800" title={currentUser.email || 'User'}>
-                        {currentUser.email ? currentUser.email.split('@')[0] : 'User'}
+                        {currentUser.email ? currentUser.email.split('@')[0] : 'Usuario'}
                     </p>
-                    <p className="text-xs text-red-500">Profile unavailable</p>
+                    <p className="text-xs text-red-500">Perfil no disponible</p>
                 </div>
             )}
           </div>
