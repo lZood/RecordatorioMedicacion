@@ -123,28 +123,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         throw new Error("Not authenticated.");
     }
     
-    // Prepara el objeto de datos para la inserción.
-    // Si patientId es explícitamente undefined en notificationData, se convertirá a null.
-    // Si patientId es null, se mantendrá como null.
-    // Si patientId tiene un valor, se usará ese valor.
     const dataToCreate = {
       ...notificationData,
       patientId: notificationData.patientId === undefined ? null : notificationData.patientId,
       doctorId: notificationData.doctorId !== undefined ? notificationData.doctorId : (userProfile?.role === 'doctor' ? currentUser.id : undefined),
     };
 
-    console.log("AppContext.addNotification: dataToCreate antes de enviar al servicio:", dataToCreate);
-
+    // console.log("AppContext.addNotification: dataToCreate antes de enviar al servicio:", dataToCreate);
 
     try {
-      // Asegúrate de que el tipo de dataToCreate coincida con lo que espera notificationService.create
       const newNotification = await notificationService.create(dataToCreate as Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>);
       if (newNotification) {
+        // Actualizar el estado de notificaciones ANTES de cualquier lógica que dependa de él para evitar stale closures
         setNotifications(prev => [newNotification, ...prev].sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()));
+        
         if (notificationData.type !== 'appointment_reminder_24h' && 
             notificationData.type !== 'abnormal_vital_sign' &&
             notificationData.type !== 'medication_expiring_soon_stock') {
-            // toast.success('Notificación guardada!'); // Considera si este toast es necesario aquí
+            // toast.success('Notificación guardada!'); 
         }
         return newNotification;
       }
@@ -158,22 +154,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       throw error; 
     }
     return undefined;
-  }, [currentUser, userProfile]);
+  }, [currentUser, userProfile]); // addNotification es estable respecto a 'notifications'
 
 
   const generateUpcomingAppointmentReminders = useCallback(async () => {
     if (userProfile?.role !== 'doctor' || !appointments.length || !patients.length) return;
 
-    console.log("AppContext: Verificando recordatorios de citas próximas (24h)...");
+    // console.log("AppContext: Verificando recordatorios de citas próximas (24h)...");
     const now = new Date();
     const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    // Usar una copia del estado actual de notificaciones para la verificación de duplicados
+    // para evitar depender de 'notifications' en el array de useCallback y causar bucles.
+    const currentNotifications = notifications;
+
 
     for (const appt of appointments) {
       if (appt.status === 'scheduled') {
         const appointmentDateTime = new Date(`${appt.date}T${appt.time}`);
         
         if (appointmentDateTime > now && appointmentDateTime <= twentyFourHoursLater) {
-          const existingReminder = notifications.find(
+          const existingReminder = currentNotifications.find( // Usa currentNotifications
             n => n.appointmentId === appt.id && n.type === 'appointment_reminder_24h'
           );
 
@@ -193,30 +194,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               };
               try {
                 await addNotification(reminderData);
-                // console.log(`AppContext: Recordatorio de 24h generado para cita ${appt.id} para paciente ${patient.name}`);
               } catch (error) {
-                // El error ya se loguea en addNotification
+                // Silencioso, ya se loguea en addNotification
               }
             }
           }
         }
       }
     }
-  }, [appointments, patients, notifications, userProfile, addNotification]);
+  }, [appointments, patients, userProfile, addNotification]); // Removido 'notifications'
 
   const checkExpiringMedicationsStock = useCallback(async () => {
     if (userProfile?.role !== 'doctor' || !medications.length || !currentUser) return;
 
-    console.log("AppContext: Verificando stock de medicamentos por vencer...");
+    // console.log("AppContext: Verificando stock de medicamentos por vencer...");
     const today = new Date();
     const thirtyDaysLater = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    
+    const currentNotifications = notifications; // Usa copia actual
 
     for (const med of medications) {
         if (med.doctorId !== currentUser.id) continue;
 
         const expirationDate = new Date(med.expirationDate);
         if (expirationDate > today && expirationDate <= thirtyDaysLater) {
-            const existingNotification = notifications.find(
+            const existingNotification = currentNotifications.find( // Usa currentNotifications
                 n => n.type === 'medication_expiring_soon_stock' && 
                      n.message.includes(`"${med.name}"`) && 
                      n.doctorId === currentUser.id 
@@ -226,7 +228,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 const message = `Alerta de inventario: Su medicamento "${med.name}" (Principio Activo: ${med.activeIngredient}) vence el ${new Date(med.expirationDate + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES')}.`;
                 
                 const notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
-                    patientId: null, // Correcto: patientId es null para este tipo de notificación
+                    patientId: null,
                     doctorId: currentUser.id,
                     message,
                     type: 'medication_expiring_soon_stock',
@@ -234,14 +236,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 };
                 try {
                     await addNotification(notificationData);
-                    // console.log(`AppContext: Notificación de medicamento por vencer generada para "${med.name}"`);
                 } catch (error) {
-                    // El error ya se loguea en addNotification
+                    // Silencioso
                 }
             }
         }
     }
-  }, [medications, notifications, currentUser, userProfile, addNotification]);
+  }, [medications, currentUser, userProfile, addNotification]); // Removido 'notifications'
 
 
   const internalLoadInitialData = useCallback(async (authUser: User | null) => {
@@ -305,6 +306,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [fetchUserProfile]);
   
+  // Este useEffect llama a las funciones generadoras.
+  // Las funciones generadoras ahora NO tienen 'notifications' en sus dependencias de useCallback,
+  // por lo que sus referencias no cambian cuando 'notifications' cambia.
+  // Esto rompe el bucle.
   useEffect(() => {
     if (userProfile?.role === 'doctor' && !loadingData) {
         generateUpcomingAppointmentReminders();
