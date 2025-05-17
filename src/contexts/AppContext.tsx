@@ -14,6 +14,24 @@ import { notificationService } from '../services/notificationService';
 import toast from 'react-hot-toast';
 import { authService } from '../services/auth';
 
+// Helper function to determine if a vital sign is abnormal (basic example)
+// This should be expanded with proper medical guidelines
+const isAbnormalVitalSign = (vitalSign: VitalSign): { abnormal: boolean; reason: string } => {
+  const { type, value } = vitalSign;
+  // Ejemplo simple: umbrales para la presión arterial sistólica y frecuencia cardíaca
+  if (type.toLowerCase().includes('presión arterial sistólica') || type.toLowerCase().includes('systolic blood pressure')) {
+    if (value > 140) return { abnormal: true, reason: `Presión sistólica alta: ${value} mmHg` };
+    if (value < 90) return { abnormal: true, reason: `Presión sistólica baja: ${value} mmHg` };
+  }
+  if (type.toLowerCase().includes('frecuencia cardíaca') || type.toLowerCase().includes('heart rate')) {
+    if (value > 100) return { abnormal: true, reason: `Frecuencia cardíaca alta: ${value} bpm` };
+    if (value < 60) return { abnormal: true, reason: `Frecuencia cardíaca baja: ${value} bpm` };
+  }
+  // Añadir más condiciones para otros tipos de signos vitales
+  return { abnormal: false, reason: '' };
+};
+
+
 interface AppContextType {
   currentUser: User | null;
   userProfile: UserProfile | null;
@@ -38,7 +56,7 @@ interface AppContextType {
   loadingAppointments: boolean;
   loadingDoctors: boolean;
   addAppointment: (appointmentData: Omit<Appointment, 'id'>) => Promise<Appointment | undefined>;
-  updateAppointment: (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>) => Promise<Appointment | undefined>; // Return updated appointment
+  updateAppointment: (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>) => Promise<Appointment | undefined>;
   deleteAppointment: (id: string) => Promise<void>;
   getAppointmentById: (id: string) => Appointment | undefined;
 
@@ -61,7 +79,8 @@ interface AppContextType {
   addNotification: (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Notification | undefined>;
   fetchNotificationsForPatient: (patientId: string) => Promise<Notification[]>;
   updateNotificationStatus: (notificationId: string, status: Notification['status']) => Promise<Notification | undefined>;
-  generateUpcomingAppointmentReminders: () => Promise<void>; // Nueva función
+  generateUpcomingAppointmentReminders: () => Promise<void>;
+  checkExpiringMedicationsStock: () => Promise<void>; // Nueva función para stock de medicamentos
 
   signOut: () => Promise<void>;
   loadInitialData: (user: User | null) => Promise<void>;
@@ -77,7 +96,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [loadingProfile, setLoadingProfile] = useState(false);
 
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [medications, setMedications] = useState<Medication[]>([]);
+  const [medications, setMedications] = useState<Medication[]>([]); // Esta lista se asume como el stock del doctor
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<UserProfile[]>([]);
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
@@ -102,30 +121,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
   const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
-    if (!currentUser || userProfile?.role !== 'doctor') { 
-        // Permitir crear notificaciones incluso si no es doctor, si el doctorId está especificado (ej. sistema)
-        if(!notificationData.doctorId && userProfile?.role !== 'doctor'){
-            toast.error("No autorizado para crear esta notificación."); 
-            throw new Error("Not authorized."); 
-        }
+    // La autorización ya se maneja parcialmente aquí, pero se puede refinar
+    if (!currentUser) {
+        toast.error("Autenticación requerida para crear notificación.");
+        throw new Error("Not authenticated.");
     }
-    try {
-      // Asegurar que el doctorId del usuario actual se use si no se provee uno (para notificaciones generadas por el doctor)
-      const dataWithDoctorId = {
-        ...notificationData,
-        doctorId: notificationData.doctorId || (userProfile?.role === 'doctor' ? currentUser?.id : undefined),
-      };
+    // Si no se especifica doctorId y el usuario actual es un doctor, se asigna.
+    // Si es una notificación del sistema, doctorId podría ser null o un ID de sistema.
+    const dataToCreate = {
+      ...notificationData,
+      doctorId: notificationData.doctorId || (userProfile?.role === 'doctor' ? currentUser.id : undefined),
+    };
 
-      const newNotification = await notificationService.create(dataWithDoctorId);
+    try {
+      const newNotification = await notificationService.create(dataToCreate);
       if (newNotification) {
         setNotifications(prev => [newNotification, ...prev].sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()));
-        // No mostrar toast aquí para no molestar con notificaciones automáticas, solo para las manuales.
-        // El toast se puede manejar en el lugar donde se llama a addNotification si es una acción manual.
+        // Evitar toasts para notificaciones automáticas para no saturar al usuario
+        if (notificationData.type !== 'appointment_reminder_24h' && 
+            notificationData.type !== 'abnormal_vital_sign' &&
+            notificationData.type !== 'medication_expiring_soon_stock') {
+            // toast.success('Notificación guardada!'); // Solo para manuales o importantes
+        }
         return newNotification;
       }
     } catch (error: any) { 
       console.error("AppContext.addNotification: Error:", error);
-      toast.error(`Error al guardar notificación: ${error.message || 'Error desconocido'}`); 
+      // No mostrar toast de error aquí si es una notificación automática fallida,
+      // para no interrumpir al usuario. Registrar en consola es suficiente.
+      // toast.error(`Error al guardar notificación: ${error.message || 'Error desconocido'}`); 
       throw error; 
     }
     return undefined;
@@ -143,7 +167,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (appt.status === 'scheduled') {
         const appointmentDateTime = new Date(`${appt.date}T${appt.time}`);
         
-        // Verificar si la cita es dentro de las próximas 24 horas y aún no ha pasado
         if (appointmentDateTime > now && appointmentDateTime <= twentyFourHoursLater) {
           const existingReminder = notifications.find(
             n => n.appointmentId === appt.id && n.type === 'appointment_reminder_24h'
@@ -157,14 +180,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               const reminderData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
                 patientId: patient.id,
                 appointmentId: appt.id,
-                doctorId: appt.doctorId, // El doctor de la cita
+                doctorId: appt.doctorId,
                 message,
                 type: 'appointment_reminder_24h',
-                status: 'pending', // Se marcará como 'sent' por un proceso de envío real
-                sendAt: new Date(appointmentDateTime.getTime() - 24 * 60 * 60 * 1000).toISOString(), // Idealmente 24h antes
+                status: 'pending', 
+                sendAt: new Date(appointmentDateTime.getTime() - 24 * 60 * 60 * 1000).toISOString(),
               };
               try {
-                await addNotification(reminderData); // Usa la función addNotification del contexto
+                await addNotification(reminderData);
                 console.log(`AppContext: Recordatorio de 24h generado para cita ${appt.id} para paciente ${patient.name}`);
               } catch (error) {
                 console.error(`AppContext: Error generando recordatorio de 24h para cita ${appt.id}:`, error);
@@ -174,7 +197,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       }
     }
-  }, [appointments, patients, notifications, userProfile, addNotification]); // addNotification es una dependencia
+  }, [appointments, patients, notifications, userProfile, addNotification]);
+
+  const checkExpiringMedicationsStock = useCallback(async () => {
+    if (userProfile?.role !== 'doctor' || !medications.length || !currentUser) return;
+
+    console.log("AppContext: Verificando stock de medicamentos por vencer...");
+    const today = new Date();
+    const thirtyDaysLater = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    for (const med of medications) {
+        // Solo considerar medicamentos que pertenecen al doctor actual
+        if (med.doctorId !== currentUser.id) continue;
+
+        const expirationDate = new Date(med.expirationDate);
+        if (expirationDate > today && expirationDate <= thirtyDaysLater) {
+            const existingNotification = notifications.find(
+                n => n.type === 'medication_expiring_soon_stock' && 
+                     n.message.includes(med.name) && // Chequeo simple, podría ser más robusto con un ID de medicamento si lo tuvieras en la notificación
+                     n.doctorId === currentUser.id 
+            );
+
+            if (!existingNotification) {
+                const message = `Alerta de inventario: Su medicamento "${med.name}" (Principio Activo: ${med.activeIngredient}) vence el ${new Date(med.expirationDate + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES')}.`;
+                const notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
+                    patientId: currentUser.id, // O un ID de sistema, o nulo si la tabla lo permite y tiene sentido
+                    doctorId: currentUser.id, // Notificación para el doctor actual
+                    message,
+                    type: 'medication_expiring_soon_stock',
+                    status: 'pending',
+                };
+                try {
+                    await addNotification(notificationData);
+                    console.log(`AppContext: Notificación de medicamento por vencer generada para "${med.name}"`);
+                } catch (error) {
+                    console.error(`AppContext: Error generando notificación de medicamento por vencer para "${med.name}":`, error);
+                }
+            }
+        }
+    }
+  }, [medications, notifications, currentUser, userProfile, addNotification]);
 
 
   const internalLoadInitialData = useCallback(async (authUser: User | null) => {
@@ -192,7 +254,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLoadingVitalSigns(true); setLoadingMedicationIntakes(true); setLoadingNotifications(true);
     try {
       const doctorsDataPromise = profileService.getAllDoctors(); 
-      const notificationsPromise = notificationService.getAll(); // Cargar todas las notificaciones inicialmente
+      const notificationsPromise = notificationService.getAll(); 
 
       let dataPromises: Promise<any>[] = [doctorsDataPromise, notificationsPromise];
       
@@ -227,13 +289,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setAppointments(appointmentsData || []);
         setVitalSigns(vitalSignsData || []);
         setMedicationIntakes([]); 
-        // Después de cargar citas y pacientes, generar recordatorios
-        // Esto se hace aquí para asegurar que appointments y patients estén disponibles
-        // Se pasa una copia de appointments y patients para evitar problemas de cierre con el estado.
-        if (appointmentsData && patientsData) {
-            // Llamar a generateUpcomingAppointmentReminders después de que los datos base se hayan establecido.
-            // Esto es una simulación; idealmente, un backend haría esto.
-        }
       }
 
     } catch (error) {
@@ -243,14 +298,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setLoadingData(false); setLoadingAppointments(false); setLoadingDoctors(false); 
       setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); setLoadingNotifications(false);
     }
-  }, [fetchUserProfile]); // No añadir generateUpcomingAppointmentReminders aquí para evitar bucles si modifica 'notifications'
+  }, [fetchUserProfile]);
   
-  // Efecto separado para generar recordatorios cuando cambian las citas o el perfil del usuario
   useEffect(() => {
-    if (userProfile?.role === 'doctor' && appointments.length > 0 && patients.length > 0 && !loadingData) {
+    if (userProfile?.role === 'doctor' && !loadingData) { // Asegurar que los datos base estén cargados
         generateUpcomingAppointmentReminders();
+        checkExpiringMedicationsStock(); // Llamar a la nueva función
     }
-  }, [appointments, patients, userProfile, loadingData, generateUpcomingAppointmentReminders]);
+  }, [appointments, patients, medications, notifications, userProfile, loadingData, generateUpcomingAppointmentReminders, checkExpiringMedicationsStock]);
 
 
   useEffect(() => {
@@ -276,7 +331,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [internalLoadInitialData]);
 
-  // --- CRUD Pacientes (sin cambios) ---
   const addPatient = useCallback(async (patientData: Omit<Patient, 'id' | 'createdAt' | 'doctorId'>): Promise<Patient | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Solo los doctores pueden añadir pacientes."); throw new Error("User not authorized or not a doctor."); }
     try {
@@ -311,7 +365,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return patients.find(p => p.id === id);
   }, [patients]);
 
-  // --- CRUD Medicamentos (sin cambios) ---
   const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>): Promise<Medication | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Solo los doctores pueden añadir medicamentos."); throw new Error("User not authorized or not a doctor."); }
     if (!currentUser.id) { toast.error("Falta ID del doctor."); throw new Error("Doctor ID is missing.");}
@@ -354,7 +407,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return medications.find(m => m.id === id);
   }, [medications]);
 
-  // --- CRUD Citas (Appointments) ---
   const addAppointmentCb = useCallback(async (appointmentData: Omit<Appointment, 'id'>): Promise<Appointment | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Error de autenticación/Rol de doctor necesario"); throw new Error("User not authorized or not a doctor."); }
     const dataWithCorrectDoctor = { ...appointmentData, doctorId: currentUser.id };
@@ -363,7 +415,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (newAppointment) {
         setAppointments(prev => [...prev, newAppointment].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
         toast.success('Cita programada!');
-        // Generar notificación de nueva cita
         const patient = patients.find(p => p.id === newAppointment.patientId);
         if (patient) {
             await addNotification({
@@ -389,7 +440,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (updatedApp) {
          setAppointments(prev => prev.map(app => (app.id === id ? updatedApp : app)).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
          toast.success('Cita actualizada!');
-         // Generar notificación de cita actualizada si cambian datos relevantes
          if (oldAppointment && (oldAppointment.date !== updatedApp.date || oldAppointment.time !== updatedApp.time || oldAppointment.status !== updatedApp.status)) {
             const patient = patients.find(p => p.id === updatedApp.patientId);
             if (patient) {
@@ -416,8 +466,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const deleteAppointmentCb = useCallback(async (id: string): Promise<void> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Error de autenticación/Rol de doctor necesario"); throw new Error("User not authorized or not a doctor."); }
     try {
-      // Podrías querer generar una notificación de cancelación ANTES de eliminarla,
-      // si la cita aún no ha sido notificada como cancelada.
       const apptToDelete = appointments.find(app => app.id === id);
       if (apptToDelete && apptToDelete.status !== 'cancelled') {
         const patient = patients.find(p => p.id === apptToDelete.patientId);
@@ -442,7 +490,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return appointments.find(app => app.id === id);
   }, [appointments]);
 
-  // --- CRUD para Signos Vitales (VitalSigns) (sin cambios) ---
   const addVitalSign = useCallback(async (vitalSignData: Omit<VitalSign, 'id'>): Promise<VitalSign | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
     try {
@@ -450,21 +497,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (newVitalSign) {
         setVitalSigns(prev => [...prev, newVitalSign].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time) ));
         toast.success('Signo vital registrado!');
-        // Potencial notificación para el doctor si el signo es anormal
-        // if (isAbnormal(newVitalSign)) { // Necesitarías una función isAbnormal
-        //   await addNotification({
-        //     patientId: newVitalSign.patientId,
-        //     doctorId: currentUser.id, // Notificación para el doctor actual
-        //     message: `Alerta: ${patients.find(p=>p.id === newVitalSign.patientId)?.name || 'Paciente'} registró ${newVitalSign.type} de ${newVitalSign.value} ${newVitalSign.unit}.`,
-        //     type: 'abnormal_vital_sign',
-        //     status: 'pending'
-        //   });
-        // }
+        
+        const abnormalityCheck = isAbnormalVitalSign(newVitalSign);
+        if (abnormalityCheck.abnormal) {
+          const patient = patients.find(p => p.id === newVitalSign.patientId);
+          await addNotification({
+            patientId: newVitalSign.patientId, // La notificación es sobre este paciente
+            doctorId: currentUser.id, // Dirigida al doctor actual
+            message: `Alerta Signo Vital: ${patient?.name || 'Paciente desconocido'} registró ${newVitalSign.type} ${abnormalityCheck.reason}.`,
+            type: 'abnormal_vital_sign',
+            status: 'pending'
+          });
+          toast.warn(`Signo vital anormal detectado para ${patient?.name || 'Paciente desconocido'}! Notificación generada.`);
+        }
         return newVitalSign;
       }
     } catch (error: any) { toast.error(`Error al registrar signo vital: ${error.message || 'Error desconocido'}`); throw error; }
     return undefined;
-  }, [currentUser, userProfile, addNotification, patients]); // Añadir addNotification y patients
+  }, [currentUser, userProfile, patients, addNotification]); 
 
   const updateVitalSign = useCallback(async (id: string, vitalSignUpdateData: Partial<Omit<VitalSign, 'id'>>) => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
@@ -497,7 +547,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     finally { setLoadingVitalSigns(false); }
   }, [currentUser, userProfile]);
 
-  // --- CRUD para Tomas de Medicamentos (MedicationIntakes) (sin cambios) ---
   const addMedicationIntake = useCallback(async (intakeData: Omit<MedicationIntake, 'id' | 'createdAt' | 'updatedAt'>): Promise<MedicationIntakeWithMedication | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
     try {
@@ -540,7 +589,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     finally { setLoadingMedicationIntakes(false); }
   }, [currentUser, userProfile]);
 
-  // --- Funciones de Notificación ---
   const fetchNotificationsForPatient = useCallback(async (patientId: string): Promise<Notification[]> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
     setLoadingNotifications(true);
@@ -593,7 +641,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         vitalSigns, loadingVitalSigns, addVitalSign, updateVitalSign, deleteVitalSign, fetchVitalSignsForPatient,
         medicationIntakes, loadingMedicationIntakes, addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, fetchMedicationIntakesForPatient,
         notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, updateNotificationStatus,
-        generateUpcomingAppointmentReminders, // Exponer la nueva función
+        generateUpcomingAppointmentReminders,
+        checkExpiringMedicationsStock, // Exponer la nueva función
         signOut,
         loadInitialData: stableLoadInitialData,
       }}
