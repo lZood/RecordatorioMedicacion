@@ -56,7 +56,7 @@ interface AppContextType {
   fetchMedicationIntakesForPatient: (patientId: string) => Promise<MedicationIntakeWithMedication[]>;
 
   signOut: () => Promise<void>;
-  // loadInitialData ya no se expone, es manejada internamente
+  // loadInitialData no se expone directamente si la carga es interna y automática
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -81,9 +81,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(false);
 
   const previousAuthUserIdRef = useRef<string | null | undefined>(undefined);
-  const isMountedRef = useRef(true); // Ref para controlar si el componente está montado
+  const isMountedRef = useRef(true);
 
-  useEffect(() => { // Cleanup para isMountedRef
+  useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
@@ -116,11 +116,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     if (!authUser) {
       console.log("AppContext: No authUser for internalLoadInitialData, clearing all app states.");
-      setUserProfile(null);
-      setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
-      setVitalSigns([]); setMedicationIntakes([]);
-      setLoadingData(false); setLoadingAppointments(false); setLoadingDoctors(false); 
-      setLoadingVitalSigns(false); setLoadingMedicationIntakes(false);
+      if (isMountedRef.current) {
+        setUserProfile(null);
+        setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
+        setVitalSigns([]); setMedicationIntakes([]);
+        setLoadingData(false); setLoadingAppointments(false); setLoadingDoctors(false); 
+        setLoadingVitalSigns(false); setLoadingMedicationIntakes(false);
+      }
       return;
     }
     console.log("AppContext: AuthUser present, attempting to load initial data for:", authUser.id);
@@ -128,8 +130,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const fetchedProfile = await fetchUserProfile(authUser.id);
     if (!isMountedRef.current) return;
 
-    setLoadingData(true); setLoadingAppointments(true); setLoadingDoctors(true); 
-    setLoadingVitalSigns(true); setLoadingMedicationIntakes(true);
+    if (isMountedRef.current) {
+        setLoadingData(true); setLoadingAppointments(true); setLoadingDoctors(true); 
+        setLoadingVitalSigns(true); setLoadingMedicationIntakes(true);
+    }
     try {
       const doctorsDataPromise = profileService.getAllDoctors(); 
       let dataPromises: Promise<any>[] = [doctorsDataPromise];
@@ -149,6 +153,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             setPatients([]); setMedications([]); setAppointments([]);
             setVitalSigns([]); setMedicationIntakes([]);
         }
+        // Asegurar que Promise.all tenga el número correcto de promesas
         dataPromises = [doctorsDataPromise, Promise.resolve([]), Promise.resolve([]), Promise.resolve([]), Promise.resolve([])];
       }
       
@@ -201,24 +206,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const authUser = session?.user ?? null;
       console.log("AppContext: Initial session user:", authUser?.id);
       if (isMountedRef.current) setCurrentUser(authUser);
-      previousAuthUserIdRef.current = authUser?.id; // Importante: inicializar la referencia
+      previousAuthUserIdRef.current = authUser?.id;
       
-      // internalLoadInitialData se llamará por onAuthStateChange con INITIAL_SESSION o SIGNED_IN
-      // si authUser existe, o con SIGNED_OUT si authUser es null.
-      // Para asegurar que los datos se carguen si onAuthStateChange no se dispara inmediatamente
-      // o si el evento inicial no es suficiente, podemos llamarlo aquí.
-      // Sin embargo, esto podría llevar a doble carga si onAuthStateChange también lo llama.
-      // La estrategia de onAuthStateChange es más robusta.
-      // El principal problema es que onAuthStateChange puede dispararse múltiples veces.
-      if (authUser) {
-          await internalLoadInitialData(authUser);
-      } else {
-          await internalLoadInitialData(null); // Limpiar si no hay sesión
-      }
-      if (isMountedRef.current) setLoadingAuth(false);
+      // La carga inicial de datos se activará por onAuthStateChange con INITIAL_SESSION
+      // o si el usuario ya está logueado. No es necesario llamarlo dos veces.
+      // await internalLoadInitialData(authUser); // Eliminado para evitar doble carga
+      if (isMountedRef.current) setLoadingAuth(false); // setLoadingAuth después de procesar la sesión inicial
     };
 
-    initialSetup();
+    initialSetup(); // Llama a la configuración inicial que obtiene la sesión
 
     const { data: authListenerData } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
@@ -228,30 +224,39 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const newAuthUserId = newAuthUser?.id;
         const oldAuthUserId = previousAuthUserIdRef.current;
 
-        console.log("AppContext: Auth state change received. Event:", _event, "New User ID:", newAuthUserId, "Old User ID:", oldAuthUserId);
+        console.log("AppContext: Auth state change. Event:", _event, "NewUID:", newAuthUserId, "OldUID:", oldAuthUserId);
 
-        if (isMountedRef.current) setCurrentUser(newAuthUser); // Siempre actualizar el estado de currentUser
+        if (isMountedRef.current) setCurrentUser(newAuthUser);
 
         if (newAuthUserId !== oldAuthUserId) {
-          console.log(`AppContext: User ID changed or critical event SIGNED_IN/SIGNED_OUT. Old: ${oldAuthUserId}, New: ${newAuthUserId}. Event: ${_event}. Reloading all data.`);
-          previousAuthUserIdRef.current = newAuthUserId; // Actualizar la referencia ANTES de la carga de datos
+          // Esto maneja SIGNED_IN (nuevo usuario) y SIGNED_OUT
+          console.log(`AppContext: User ID changed. Old: ${oldAuthUserId}, New: ${newAuthUserId}. Event: ${_event}. Reloading all data.`);
+          previousAuthUserIdRef.current = newAuthUserId;
           if (isMountedRef.current) await internalLoadInitialData(newAuthUser);
-        } else if (newAuthUser && _event === 'USER_UPDATED') {
-          // Usuario es el mismo, pero sus metadatos (ej. email verificado, contraseña cambiada) podrían haber cambiado
-          console.log("AppContext: Event USER_UPDATED for current user. Refetching profile.");
-          if (isMountedRef.current) await fetchUserProfile(newAuthUser.id);
-        } else if (newAuthUser && (_event === 'TOKEN_REFRESHED' || (_event === 'INITIAL_SESSION' && newAuthUserId === oldAuthUserId))) {
-          // Token refrescado o sesión inicial confirmada para el MISMO usuario.
-          // No recargar todos los datos, solo asegurar que el perfil esté cargado si no lo estaba.
-          console.log(`AppContext: Event ${_event} for current user ${newAuthUserId}. Ensuring profile is loaded if not already, and currentUser object is up-to-date.`);
-          // Actualizar currentUser por si el objeto User en sí mismo cambió (ej. nuevo token)
-          // setCurrentUser ya lo hace arriba.
-          if (isMountedRef.current && (!userProfile || userProfile.id !== newAuthUserId)) {
-            console.log("AppContext: Profile missing or for different user, fetching profile.");
-            await fetchUserProfile(newAuthUser.id);
-          } else {
-            console.log("AppContext: Profile already loaded for current user. No full data reload needed for this event.");
+        } else if (newAuthUser) { // El usuario es el mismo (newAuthUserId === oldAuthUserId)
+          if (_event === 'USER_UPDATED') {
+            console.log("AppContext: Event USER_UPDATED for current user. Refetching profile.");
+            if (isMountedRef.current) await fetchUserProfile(newAuthUser.id);
+          } else if (_event === 'TOKEN_REFRESHED') {
+            console.log(`AppContext: Event TOKEN_REFRESHED for current user ${newAuthUserId}. currentUser object updated. Profile should be current.`);
+            // No se necesita recargar datos aquí, solo el token cambió. El perfil ya debería estar cargado.
+          } else if (_event === 'INITIAL_SESSION') {
+            // Este evento puede dispararse al inicio o al volver a enfocar la pestaña.
+            // Si el usuario es el mismo, significa que internalLoadInitialData ya se llamó o se está llamando
+            // a través de initialSetup o un SIGNED_IN previo.
+            // Solo recargar el perfil si parece estar desincronizado o faltante.
+            console.log(`AppContext: Event INITIAL_SESSION for already known user ${newAuthUserId}. Ensuring profile is loaded if necessary.`);
+            if (isMountedRef.current && (!userProfile || userProfile.id !== newAuthUserId)) {
+                console.log("AppContext: Profile missing or for different user on INITIAL_SESSION, attempting to fetch profile.");
+                await fetchUserProfile(newAuthUser.id);
+            } else {
+                 console.log("AppContext: Profile already loaded for current user for INITIAL_SESSION. No data reload.");
+            }
           }
+        } else if (!newAuthUser && oldAuthUserId) { // SIGNED_OUT explícito (oldAuthUserId tenía valor, newAuthUser es null)
+            console.log("AppContext: User explicitly signed out (event or ID became null). Clearing data.");
+            previousAuthUserIdRef.current = null;
+            if (isMountedRef.current) await internalLoadInitialData(null);
         }
       }
     );
@@ -509,7 +514,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const { error } = await authService.signOut();
       if (error) throw error;
-      // onAuthStateChange se encargará de limpiar currentUser y llamar a internalLoadInitialData(null)
       if (isMountedRef.current) {
         toast.dismiss('signout-toast');
         toast.success('Signed out successfully!');
@@ -534,7 +538,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         vitalSigns, loadingVitalSigns, addVitalSign, updateVitalSign, deleteVitalSign, fetchVitalSignsForPatient,
         medicationIntakes, loadingMedicationIntakes, addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, fetchMedicationIntakesForPatient,
         signOut,
-        loadInitialData: internalLoadInitialData, // Exponer la versión interna memoizada
+        loadInitialData: internalLoadInitialData, // Exponer la versión interna memoizada, renombrada en la interfaz
       }}
     >
       {children}
