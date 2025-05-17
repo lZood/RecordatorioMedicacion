@@ -1,6 +1,5 @@
 // src/contexts/AppContext.tsx
 import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
-// Asegúrate de importar el nuevo tipo Notification y el servicio
 import { Patient, Medication, Appointment, VitalSign, MedicationIntake, UserProfile, Doctor, Notification } from '../types';
 import { MedicationIntakeWithMedication } from '../services/medicationIntakes';
 import { User, Subscription } from '@supabase/supabase-js';
@@ -11,7 +10,7 @@ import { appointmentService } from '../services/appointments';
 import { vitalSignService } from '../services/vitalSigns';
 import { medicationIntakeService } from '../services/medicationIntakes';
 import { profileService } from '../services/profiles';
-import { notificationService } from '../services/notificationService'; // Importar el nuevo servicio
+import { notificationService } from '../services/notificationService';
 import toast from 'react-hot-toast';
 import { authService } from '../services/auth';
 
@@ -35,7 +34,7 @@ interface AppContextType {
   getMedicationById: (id: string) => Medication | undefined;
   
   appointments: Appointment[];
-  doctors: UserProfile[]; // Este debería ser UserProfile[] o Doctor[]
+  doctors: UserProfile[];
   loadingAppointments: boolean;
   loadingDoctors: boolean;
   addAppointment: (appointmentData: Omit<Appointment, 'id'>) => Promise<Appointment | undefined>;
@@ -57,12 +56,11 @@ interface AppContextType {
   deleteMedicationIntake: (id: string) => Promise<void>;
   fetchMedicationIntakesForPatient: (patientId: string) => Promise<MedicationIntakeWithMedication[]>;
 
-  // Funciones de Notificación
   notifications: Notification[];
   loadingNotifications: boolean;
   addNotification: (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Notification | undefined>;
   fetchNotificationsForPatient: (patientId: string) => Promise<Notification[]>;
-  // Podrías añadir updateNotification y deleteNotification si es necesario
+  updateNotificationStatus: (notificationId: string, status: Notification['status']) => Promise<Notification | undefined>; // Para marcar como leída, etc.
 
   signOut: () => Promise<void>;
   loadInitialData: (user: User | null) => Promise<void>;
@@ -80,16 +78,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [patients, setPatients] = useState<Patient[]>([]);
   const [medications, setMedications] = useState<Medication[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [doctors, setDoctors] = useState<UserProfile[]>([]); // O Doctor[]
+  const [doctors, setDoctors] = useState<UserProfile[]>([]);
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
   const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntakeWithMedication[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]); // Estado para notificaciones
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [loadingDoctors, setLoadingDoctors] = useState(false);
   const [loadingVitalSigns, setLoadingVitalSigns] = useState(false);
   const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(false);
-  const [loadingNotifications, setLoadingNotifications] = useState(false); // Estado de carga para notificaciones
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
 
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
@@ -115,21 +113,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!authUser) {
       setUserProfile(null);
       setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
-      setVitalSigns([]); setMedicationIntakes([]); setNotifications([]); // Limpiar notificaciones
+      setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
       setLoadingData(false); setLoadingAppointments(false); setLoadingDoctors(false); 
-      setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); setLoadingNotifications(false); // Limpiar carga de notificaciones
+      setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); setLoadingNotifications(false);
       return;
     }
     const fetchedProfile = await fetchUserProfile(authUser.id);
 
     setLoadingData(true); setLoadingAppointments(true); setLoadingDoctors(true); 
-    setLoadingVitalSigns(true); setLoadingMedicationIntakes(true); setLoadingNotifications(true);
+    setLoadingVitalSigns(true); setLoadingMedicationIntakes(true); setLoadingNotifications(true); // Iniciar carga de notificaciones
     try {
       const doctorsDataPromise = profileService.getAllDoctors(); 
-      // Podrías cargar notificaciones generales aquí si fuera necesario, o por paciente
-      // const notificationsPromise = notificationService.getAll(); // Ejemplo si quieres cargar todas
+      // Cargar notificaciones generales para el doctor (ej. las últimas pendientes o enviadas)
+      // Esto es un ejemplo, ajusta el filtro según necesites.
+      // Podrías querer notificaciones donde el doctor actual esté involucrado,
+      // o notificaciones para pacientes asignados a este doctor.
+      // Por simplicidad, cargaremos todas y luego filtraremos en el UI si es necesario,
+      // o idealmente, el servicio debería permitir filtros más específicos.
+      const notificationsPromise = notificationService.getAll(); 
 
-      let dataPromises: Promise<any>[] = [doctorsDataPromise /*, notificationsPromise */];
+      let dataPromises: Promise<any>[] = [doctorsDataPromise, notificationsPromise];
       
       if (fetchedProfile?.role === 'doctor') {
         dataPromises = [
@@ -138,23 +141,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           medicationService.getAll(), 
           appointmentService.getAll(),
           vitalSignService.getAll(),
-          // MedicationIntakes y Notifications se cargan bajo demanda o filtradas
         ];
       } else {
         setPatients([]); setMedications([]); setAppointments([]);
-        setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
-        dataPromises = [doctorsDataPromise, /* Promise.resolve([]), */ Promise.resolve([]), Promise.resolve([]), Promise.resolve([]), Promise.resolve([])];
+        setVitalSigns([]); setMedicationIntakes([]); 
+        // No limpiar notifications aquí si quieres que usuarios no-doctores puedan ver algunas (ej. si es una app de paciente)
+        // Pero para este caso de app de doctor, está bien.
+        setNotifications([]); 
+        dataPromises = [doctorsDataPromise, notificationsPromise, Promise.resolve([]), Promise.resolve([]), Promise.resolve([]), Promise.resolve([])];
       }
       
       const [
         resolvedDoctorsData,
-        // resolvedNotificationsData, // Si cargas todas
+        resolvedNotificationsData,
         patientsData, medicationsData, appointmentsData,
         vitalSignsData, 
       ] = await Promise.all(dataPromises);
 
       setDoctors(resolvedDoctorsData || []);
-      // setNotifications(resolvedNotificationsData || []); // Si cargas todas
+      setNotifications(resolvedNotificationsData || []); // Establecer notificaciones cargadas
       
       if (fetchedProfile?.role === 'doctor') {
         setPatients(patientsData || []);
@@ -162,12 +167,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setAppointments(appointmentsData || []);
         setVitalSigns(vitalSignsData || []);
         setMedicationIntakes([]); 
-        setNotifications([]); // Inicialmente vacío, se cargarán por paciente si es necesario
       }
 
     } catch (error) {
       console.error("AppContext: Error loading initial data sets:", error);
-      toast.error("Could not load app data. Check console for details.");
+      toast.error("No se pudieron cargar los datos de la aplicación.");
     } finally {
       setLoadingData(false); setLoadingAppointments(false); setLoadingDoctors(false); 
       setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); setLoadingNotifications(false);
@@ -197,9 +201,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [internalLoadInitialData]);
 
-  // --- CRUD Pacientes ---
+  // --- CRUD Pacientes (sin cambios) ---
   const addPatient = useCallback(async (patientData: Omit<Patient, 'id' | 'createdAt' | 'doctorId'>): Promise<Patient | undefined> => {
-    if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Only doctors can add patients."); throw new Error("User not authorized or not a doctor."); }
+    if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Solo los doctores pueden añadir pacientes."); throw new Error("User not authorized or not a doctor."); }
     try {
       const patientDataWithDoctorId: Omit<Patient, 'id' | 'createdAt'> = { ...patientData, doctorId: currentUser.id };
       const newPatient = await patientService.create(patientDataWithDoctorId);
@@ -232,7 +236,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return patients.find(p => p.id === id);
   }, [patients]);
 
-  // --- CRUD Medicamentos ---
+  // --- CRUD Medicamentos (sin cambios) ---
   const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>): Promise<Medication | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Solo los doctores pueden añadir medicamentos."); throw new Error("User not authorized or not a doctor."); }
     if (!currentUser.id) { toast.error("Falta ID del doctor."); throw new Error("Doctor ID is missing.");}
@@ -275,14 +279,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return medications.find(m => m.id === id);
   }, [medications]);
 
-  // --- CRUD Citas (Appointments) ---
+  // --- CRUD Citas (Appointments) (sin cambios) ---
   const addAppointment = useCallback(async (appointmentData: Omit<Appointment, 'id'>): Promise<Appointment | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Error de autenticación/Rol de doctor necesario"); throw new Error("User not authorized or not a doctor."); }
-    const dataWithCorrectDoctor = { ...appointmentData, doctorId: currentUser.id }; // Asegurar que el doctorId es el del usuario actual
+    const dataWithCorrectDoctor = { ...appointmentData, doctorId: currentUser.id };
     try {
       const newAppointment = await appointmentService.create(dataWithCorrectDoctor);
       if (newAppointment) {
-        // El servicio ya devuelve la cita con detalles de paciente y doctor si se configuró el .select()
         setAppointments(prev => [...prev, newAppointment].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
         toast.success('Cita programada!');
         return newAppointment;
@@ -294,16 +297,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const updateAppointment = useCallback(async (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>) => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Error de autenticación/Rol de doctor necesario"); throw new Error("User not authorized or not a doctor."); }
     try {
-      const currentAppointment = appointments.find(app => app.id === id);
-      // Prevenir cambiar doctorId a otro doctor si no es el mismo que el actual.
-      // Si doctorId no está en appointmentUpdateData o es el mismo, está bien.
-      // Si se intenta cambiar a un doctorId diferente al currentUser.id, se podría bloquear.
-      // Por ahora, el servicio asume que el RLS maneja la propiedad.
-      // Si se quiere permitir que un doctor reasigne a OTRO doctor, la lógica sería más compleja.
-      // Aquí, si se incluye doctorId, se usará; si no, se mantendrá el existente.
-      // Si la intención es que el doctorId SIEMPRE sea el currentUser.id al editar, se puede forzar:
-      // const finalUpdateData = {...appointmentUpdateData, doctorId: currentUser.id}; 
-      const updatedApp = await appointmentService.update(id, appointmentUpdateData); // Usar appointmentUpdateData directamente
+      const updatedApp = await appointmentService.update(id, appointmentUpdateData);
       if (updatedApp) {
          setAppointments(prev => prev.map(app => (app.id === id ? updatedApp : app)).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
          toast.success('Cita actualizada!');
@@ -324,7 +318,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return appointments.find(app => app.id === id);
   }, [appointments]);
 
-  // --- CRUD para Signos Vitales (VitalSigns) ---
+  // --- CRUD para Signos Vitales (VitalSigns) (sin cambios) ---
   const addVitalSign = useCallback(async (vitalSignData: Omit<VitalSign, 'id'>): Promise<VitalSign | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
     try {
@@ -369,14 +363,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     finally { setLoadingVitalSigns(false); }
   }, [currentUser, userProfile]);
 
-  // --- CRUD para Tomas de Medicamentos (MedicationIntakes) ---
+  // --- CRUD para Tomas de Medicamentos (MedicationIntakes) (sin cambios) ---
   const addMedicationIntake = useCallback(async (intakeData: Omit<MedicationIntake, 'id' | 'createdAt' | 'updatedAt'>): Promise<MedicationIntakeWithMedication | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
     try {
       const newIntake = await medicationIntakeService.create(intakeData);
       if (newIntake) {
-        // No actualizamos el estado global `medicationIntakes` aquí, ya que se maneja por paciente en PatientDetails.
-        // Si tuvieras una vista global de todas las tomas, aquí la actualizarías.
         toast.success('Toma de medicamento registrada!');
         return newIntake;
       }
@@ -389,7 +381,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const updatedIntake = await medicationIntakeService.update(id, intakeUpdateData);
       if (updatedIntake) {
-        // Similar a add, no actualizamos el estado global aquí directamente.
         toast.success('Toma de medicamento actualizada!');
         return updatedIntake;
       }
@@ -401,7 +392,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
     try {
       await medicationIntakeService.delete(id);
-      // No actualizamos el estado global aquí.
       toast.success('Toma de medicamento eliminada!');
     } catch (error: any) { toast.error(`Error al eliminar toma: ${error.message || 'Error desconocido'}`); throw error; }
   }, [currentUser, userProfile]);
@@ -411,7 +401,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLoadingMedicationIntakes(true);
     try {
       const data = await medicationIntakeService.getByPatient(patientId);
-      return data; // Devuelve los datos para que PatientDetails los use
+      return data;
     } catch (error: any) { toast.error(`Error al obtener tomas: ${error.message || 'Error desconocido'}`); throw error; }
     finally { setLoadingMedicationIntakes(false); }
   }, [currentUser, userProfile]);
@@ -422,9 +412,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const newNotification = await notificationService.create(notificationData);
       if (newNotification) {
-        // Podrías actualizar un estado global de notificaciones si es relevante para la UI general.
-        // Por ahora, solo retornamos la notificación creada.
-        // setNotifications(prev => [...prev, newNotification].sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()));
+        setNotifications(prev => [newNotification, ...prev].sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()));
         toast.success('Notificación guardada!');
         return newNotification;
       }
@@ -437,11 +425,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLoadingNotifications(true);
     try {
       const data = await notificationService.getByPatient(patientId);
-      // Podrías actualizar el estado global aquí si lo deseas, o simplemente devolver.
-      // setNotifications(data); 
+      // No actualizamos el estado global aquí, ya que es específico del paciente
       return data;
     } catch (error: any) { toast.error(`Error al obtener notificaciones: ${error.message || 'Error desconocido'}`); throw error; }
     finally { setLoadingNotifications(false); }
+  }, [currentUser, userProfile]);
+
+  const updateNotificationStatus = useCallback(async (notificationId: string, status: Notification['status']): Promise<Notification | undefined> => {
+    if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Autenticación requerida/Rol de doctor necesario"); throw new Error("Not authorized."); }
+    try {
+      const updatedNotification = await notificationService.update(notificationId, { status });
+      if (updatedNotification) {
+        setNotifications(prev => prev.map(n => n.id === notificationId ? updatedNotification : n)
+                                  .sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()));
+        toast.success(`Notificación marcada como ${status}.`);
+        return updatedNotification;
+      }
+    } catch (error: any) { toast.error(`Error al actualizar estado de notificación: ${error.message || 'Error desconocido'}`); throw error; }
+    return undefined;
   }, [currentUser, userProfile]);
 
 
@@ -471,7 +472,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addAppointment, updateAppointment, deleteAppointment, getAppointmentById,
         vitalSigns, loadingVitalSigns, addVitalSign, updateVitalSign, deleteVitalSign, fetchVitalSignsForPatient,
         medicationIntakes, loadingMedicationIntakes, addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, fetchMedicationIntakesForPatient,
-        notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, // Añadir al contexto
+        notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, updateNotificationStatus, // Añadir updateNotificationStatus
         signOut,
         loadInitialData: stableLoadInitialData,
       }}
