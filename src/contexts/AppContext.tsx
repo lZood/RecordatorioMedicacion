@@ -15,10 +15,8 @@ import toast from 'react-hot-toast';
 import { authService } from '../services/auth';
 
 // Helper function to determine if a vital sign is abnormal (basic example)
-// This should be expanded with proper medical guidelines
 const isAbnormalVitalSign = (vitalSign: VitalSign): { abnormal: boolean; reason: string } => {
   const { type, value } = vitalSign;
-  // Ejemplo simple: umbrales para la presión arterial sistólica y frecuencia cardíaca
   if (type.toLowerCase().includes('presión arterial sistólica') || type.toLowerCase().includes('systolic blood pressure')) {
     if (value > 140) return { abnormal: true, reason: `Presión sistólica alta: ${value} mmHg` };
     if (value < 90) return { abnormal: true, reason: `Presión sistólica baja: ${value} mmHg` };
@@ -27,7 +25,6 @@ const isAbnormalVitalSign = (vitalSign: VitalSign): { abnormal: boolean; reason:
     if (value > 100) return { abnormal: true, reason: `Frecuencia cardíaca alta: ${value} bpm` };
     if (value < 60) return { abnormal: true, reason: `Frecuencia cardíaca baja: ${value} bpm` };
   }
-  // Añadir más condiciones para otros tipos de signos vitales
   return { abnormal: false, reason: '' };
 };
 
@@ -80,7 +77,7 @@ interface AppContextType {
   fetchNotificationsForPatient: (patientId: string) => Promise<Notification[]>;
   updateNotificationStatus: (notificationId: string, status: Notification['status']) => Promise<Notification | undefined>;
   generateUpcomingAppointmentReminders: () => Promise<void>;
-  checkExpiringMedicationsStock: () => Promise<void>; // Nueva función para stock de medicamentos
+  checkExpiringMedicationsStock: () => Promise<void>;
 
   signOut: () => Promise<void>;
   loadInitialData: (user: User | null) => Promise<void>;
@@ -96,7 +93,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [loadingProfile, setLoadingProfile] = useState(false);
 
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [medications, setMedications] = useState<Medication[]>([]); // Esta lista se asume como el stock del doctor
+  const [medications, setMedications] = useState<Medication[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<UserProfile[]>([]);
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
@@ -121,35 +118,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
   const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
-    // La autorización ya se maneja parcialmente aquí, pero se puede refinar
     if (!currentUser) {
         toast.error("Autenticación requerida para crear notificación.");
         throw new Error("Not authenticated.");
     }
-    // Si no se especifica doctorId y el usuario actual es un doctor, se asigna.
-    // Si es una notificación del sistema, doctorId podría ser null o un ID de sistema.
+    
+    // Prepara el objeto de datos para la inserción.
+    // Si patientId es explícitamente undefined en notificationData, se convertirá a null.
+    // Si patientId es null, se mantendrá como null.
+    // Si patientId tiene un valor, se usará ese valor.
     const dataToCreate = {
       ...notificationData,
-      doctorId: notificationData.doctorId || (userProfile?.role === 'doctor' ? currentUser.id : undefined),
+      patientId: notificationData.patientId === undefined ? null : notificationData.patientId,
+      doctorId: notificationData.doctorId !== undefined ? notificationData.doctorId : (userProfile?.role === 'doctor' ? currentUser.id : undefined),
     };
 
+    console.log("AppContext.addNotification: dataToCreate antes de enviar al servicio:", dataToCreate);
+
+
     try {
-      const newNotification = await notificationService.create(dataToCreate);
+      // Asegúrate de que el tipo de dataToCreate coincida con lo que espera notificationService.create
+      const newNotification = await notificationService.create(dataToCreate as Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>);
       if (newNotification) {
         setNotifications(prev => [newNotification, ...prev].sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()));
-        // Evitar toasts para notificaciones automáticas para no saturar al usuario
         if (notificationData.type !== 'appointment_reminder_24h' && 
             notificationData.type !== 'abnormal_vital_sign' &&
             notificationData.type !== 'medication_expiring_soon_stock') {
-            // toast.success('Notificación guardada!'); // Solo para manuales o importantes
+            // toast.success('Notificación guardada!'); // Considera si este toast es necesario aquí
         }
         return newNotification;
       }
     } catch (error: any) { 
-      console.error("AppContext.addNotification: Error:", error);
-      // No mostrar toast de error aquí si es una notificación automática fallida,
-      // para no interrumpir al usuario. Registrar en consola es suficiente.
-      // toast.error(`Error al guardar notificación: ${error.message || 'Error desconocido'}`); 
+      console.error(`AppContext.addNotification: Error para tipo ${dataToCreate.type}:`, error);
+      if (dataToCreate.type !== 'appointment_reminder_24h' && 
+          dataToCreate.type !== 'abnormal_vital_sign' &&
+          dataToCreate.type !== 'medication_expiring_soon_stock') {
+          toast.error(`Error al guardar notificación: ${error.message || 'Error desconocido'}`); 
+      }
       throw error; 
     }
     return undefined;
@@ -188,9 +193,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               };
               try {
                 await addNotification(reminderData);
-                console.log(`AppContext: Recordatorio de 24h generado para cita ${appt.id} para paciente ${patient.name}`);
+                // console.log(`AppContext: Recordatorio de 24h generado para cita ${appt.id} para paciente ${patient.name}`);
               } catch (error) {
-                console.error(`AppContext: Error generando recordatorio de 24h para cita ${appt.id}:`, error);
+                // El error ya se loguea en addNotification
               }
             }
           }
@@ -207,31 +212,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const thirtyDaysLater = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     for (const med of medications) {
-        // Solo considerar medicamentos que pertenecen al doctor actual
         if (med.doctorId !== currentUser.id) continue;
 
         const expirationDate = new Date(med.expirationDate);
         if (expirationDate > today && expirationDate <= thirtyDaysLater) {
             const existingNotification = notifications.find(
                 n => n.type === 'medication_expiring_soon_stock' && 
-                     n.message.includes(med.name) && // Chequeo simple, podría ser más robusto con un ID de medicamento si lo tuvieras en la notificación
+                     n.message.includes(`"${med.name}"`) && 
                      n.doctorId === currentUser.id 
             );
 
             if (!existingNotification) {
                 const message = `Alerta de inventario: Su medicamento "${med.name}" (Principio Activo: ${med.activeIngredient}) vence el ${new Date(med.expirationDate + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES')}.`;
+                
                 const notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
-                    patientId: currentUser.id, // O un ID de sistema, o nulo si la tabla lo permite y tiene sentido
-                    doctorId: currentUser.id, // Notificación para el doctor actual
+                    patientId: null, // Correcto: patientId es null para este tipo de notificación
+                    doctorId: currentUser.id,
                     message,
                     type: 'medication_expiring_soon_stock',
                     status: 'pending',
                 };
                 try {
                     await addNotification(notificationData);
-                    console.log(`AppContext: Notificación de medicamento por vencer generada para "${med.name}"`);
+                    // console.log(`AppContext: Notificación de medicamento por vencer generada para "${med.name}"`);
                 } catch (error) {
-                    console.error(`AppContext: Error generando notificación de medicamento por vencer para "${med.name}":`, error);
+                    // El error ya se loguea en addNotification
                 }
             }
         }
@@ -301,11 +306,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [fetchUserProfile]);
   
   useEffect(() => {
-    if (userProfile?.role === 'doctor' && !loadingData) { // Asegurar que los datos base estén cargados
+    if (userProfile?.role === 'doctor' && !loadingData) {
         generateUpcomingAppointmentReminders();
-        checkExpiringMedicationsStock(); // Llamar a la nueva función
+        checkExpiringMedicationsStock();
     }
-  }, [appointments, patients, medications, notifications, userProfile, loadingData, generateUpcomingAppointmentReminders, checkExpiringMedicationsStock]);
+  }, [appointments, patients, medications, userProfile, loadingData, generateUpcomingAppointmentReminders, checkExpiringMedicationsStock]);
 
 
   useEffect(() => {
@@ -502,8 +507,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (abnormalityCheck.abnormal) {
           const patient = patients.find(p => p.id === newVitalSign.patientId);
           await addNotification({
-            patientId: newVitalSign.patientId, // La notificación es sobre este paciente
-            doctorId: currentUser.id, // Dirigida al doctor actual
+            patientId: newVitalSign.patientId,
+            doctorId: currentUser.id,
             message: `Alerta Signo Vital: ${patient?.name || 'Paciente desconocido'} registró ${newVitalSign.type} ${abnormalityCheck.reason}.`,
             type: 'abnormal_vital_sign',
             status: 'pending'
@@ -642,7 +647,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         medicationIntakes, loadingMedicationIntakes, addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, fetchMedicationIntakesForPatient,
         notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, updateNotificationStatus,
         generateUpcomingAppointmentReminders,
-        checkExpiringMedicationsStock, // Exponer la nueva función
+        checkExpiringMedicationsStock,
         signOut,
         loadInitialData: stableLoadInitialData,
       }}
