@@ -12,7 +12,6 @@ const mapAppointmentToDb = (appointmentData: Partial<Omit<Appointment, 'id' | 'c
   if (appointmentData.time !== undefined) dbData.time = appointmentData.time;
   if (appointmentData.diagnosis !== undefined) dbData.diagnosis = appointmentData.diagnosis;
   if (appointmentData.status !== undefined) dbData.status = appointmentData.status;
-  // Nuevo flag
   if (appointmentData.notificacion_recordatorio_24h_enviada !== undefined) {
     dbData.notificacion_recordatorio_24h_enviada = appointmentData.notificacion_recordatorio_24h_enviada;
   }
@@ -24,7 +23,7 @@ const mapDbToAppointment = (dbRecord: any): Appointment | null => {
   if (!dbRecord) return null;
   
   let patientInfo: AppointmentPatientInfo | null = null;
-  if (dbRecord.patients) { // 'patients' es el alias de la relación en Supabase
+  if (dbRecord.patients) {
     patientInfo = {
       id: dbRecord.patients.id,
       name: dbRecord.patients.name,
@@ -33,11 +32,12 @@ const mapDbToAppointment = (dbRecord: any): Appointment | null => {
   }
 
   let doctorInfo: AppointmentDoctorInfo | null = null;
-  if (dbRecord.doctors) { // 'doctors' es el alias de la relación en Supabase
+  // dbRecord.doctor contendrá el objeto del perfil del doctor si el select es correcto.
+  if (dbRecord.doctor) { // El alias que usamos en el SELECT es 'doctor'
     doctorInfo = {
-      id: dbRecord.doctors.id,
-      name: dbRecord.doctors.name,
-      specialty: dbRecord.doctors.specialty,
+      id: dbRecord.doctor.id,
+      name: dbRecord.doctor.name,
+      specialty: dbRecord.doctor.specialty,
     };
   }
 
@@ -54,14 +54,13 @@ const mapDbToAppointment = (dbRecord: any): Appointment | null => {
     updatedAt: dbRecord.updated_at,
     patient: patientInfo,
     doctor: doctorInfo,
-    notificacion_recordatorio_24h_enviada: dbRecord.notificacion_recordatorio_24h_enviada, // Nuevo flag
+    notificacion_recordatorio_24h_enviada: dbRecord.notificacion_recordatorio_24h_enviada,
   };
   return appointment;
 };
 
 export const appointmentService = {
   async create(appointmentDataFromApp: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'>): Promise<Appointment | null> {
-    // Asegurar que el flag se inicialice si es necesario, aunque la BD tiene DEFAULT FALSE
     const dataToInsert = mapAppointmentToDb({
         ...appointmentDataFromApp,
         notificacion_recordatorio_24h_enviada: false 
@@ -73,8 +72,8 @@ export const appointmentService = {
       .select(`
         *,
         patient:patients (id, name, email),
-        doctor:profiles (id, name, specialty)
-      `)
+        doctor:profiles (id, name, specialty) 
+      `) // MODIFICADO AQUÍ
       .single();
       
     if (error) {
@@ -91,7 +90,7 @@ export const appointmentService = {
         *,
         patient:patients (id, name, email),
         doctor:profiles (id, name, specialty)
-      `)
+      `) // MODIFICADO AQUÍ
       .order('date', { ascending: false })
       .order('time', { ascending: false });
       
@@ -109,12 +108,12 @@ export const appointmentService = {
         *,
         patient:patients (id, name, email),
         doctor:profiles (id, name, specialty)
-      `)
+      `) // MODIFICADO AQUÍ
       .eq('id', id)
       .single();
 
     if (error) {
-      if (error.code === 'PGRST116') return null; // Not found
+      if (error.code === 'PGRST116') return null; 
       console.error(`appointmentService: Error obteniendo cita ID ${id}:`, error);
       throw error;
     }
@@ -132,7 +131,7 @@ export const appointmentService = {
         *,
         patient:patients (id, name, email),
         doctor:profiles (id, name, specialty)
-      `)
+      `) // MODIFICADO AQUÍ
       .single();
       
     if (error) {
