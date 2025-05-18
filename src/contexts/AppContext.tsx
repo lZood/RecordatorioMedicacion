@@ -76,7 +76,7 @@ interface AppContextType {
   addNotification: (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Notification | undefined>;
   fetchNotificationsForPatient: (patientId: string) => Promise<Notification[]>;
   updateNotificationStatus: (notificationId: string, status: Notification['status']) => Promise<Notification | undefined>;
-  // Removed generator functions from AppContextType if they are only internal
+  // Removed generator functions from AppContextType as they are internal implementation details
   // generateUpcomingAppointmentReminders: () => Promise<void>; 
   // checkExpiringMedicationsStock: () => Promise<void>;
 
@@ -90,8 +90,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
-  const [loadingData, setLoadingData] = useState(true); // Start true
-  const [loadingProfile, setLoadingProfile] = useState(true); // Start true
+  const [loadingData, setLoadingData] = useState(true);
+  const [loadingProfile, setLoadingProfile] = useState(true);
 
   const [patients, setPatients] = useState<Patient[]>([]);
   const [medications, setMedications] = useState<Medication[]>([]);
@@ -101,11 +101,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntakeWithMedication[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const [loadingAppointments, setLoadingAppointments] = useState(true); // Start true
-  const [loadingDoctors, setLoadingDoctors] = useState(true); // Start true
-  const [loadingVitalSigns, setLoadingVitalSigns] = useState(true); // Start true
-  const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(true); // Start true
-  const [loadingNotifications, setLoadingNotifications] = useState(true); // Start true
+  const [loadingAppointments, setLoadingAppointments] = useState(true);
+  const [loadingDoctors, setLoadingDoctors] = useState(true);
+  const [loadingVitalSigns, setLoadingVitalSigns] = useState(true);
+  const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(true);
+  const [loadingNotifications, setLoadingNotifications] = useState(true);
 
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
@@ -118,11 +118,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } finally { setLoadingProfile(false); }
   }, []);
 
-  // addNotification is stable because its dependencies (currentUser, userProfile) change infrequently.
   const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
     if (!currentUser) {
-        // console.warn("addNotification: No current user, cannot create notification.");
-        throw new Error("Not authenticated.");
+        throw new Error("Not authenticated. Cannot create notification.");
     }
     
     const dataToCreate = {
@@ -135,25 +133,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const newNotification = await notificationService.create(dataToCreate as Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>);
       if (newNotification) {
         setNotifications(prev => {
-          if (prev.some(n => n.id === newNotification.id)) return prev;
+          if (prev.some(n => n.id === newNotification.id)) return prev; // Evitar duplicados en el estado
           return [newNotification, ...prev].sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
         });
         return newNotification;
       }
     } catch (error: any) { 
       console.error(`AppContext.addNotification: Error para tipo ${dataToCreate.type}:`, error);
+      // No mostrar toast aquí para notificaciones automáticas para evitar spam
+      if (dataToCreate.type !== 'appointment_reminder_24h' && 
+          dataToCreate.type !== 'abnormal_vital_sign' &&
+          dataToCreate.type !== 'medication_expiring_soon_stock') {
+          toast.error(`Error al guardar notificación: ${error.message || 'Error desconocido'}`); 
+      }
       throw error; 
     }
     return undefined;
-  }, [currentUser, userProfile]); // Depends only on currentUser and userProfile
+  }, [currentUser, userProfile]);
 
 
-  // These generator functions are now stable because `addNotification` is stable.
-  // They are called by a useEffect that depends on the data they process (appointments, patients, medications).
   const generateUpcomingAppointmentReminders = useCallback(async (
     currentAppointments: Appointment[], 
     currentPatients: Patient[], 
-    currentNotifications: Notification[],
+    // Se pasa 'notifications' desde el useEffect que llama a esta función
+    // para asegurar que se usa la versión más actualizada para la comprobación de duplicados.
+    upToDateNotifications: Notification[], 
     currentDoctorProfile: UserProfile | null
   ) => {
     if (currentDoctorProfile?.role !== 'doctor' || !currentAppointments.length || !currentPatients.length) return;
@@ -165,7 +169,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (appt.status === 'scheduled') {
         const appointmentDateTime = new Date(`${appt.date}T${appt.time}`);
         if (appointmentDateTime > now && appointmentDateTime <= twentyFourHoursLater) {
-          const existingReminder = currentNotifications.find(
+          const existingReminder = upToDateNotifications.find(
             n => n.appointmentId === appt.id && n.type === 'appointment_reminder_24h'
           );
           if (!existingReminder) {
@@ -183,11 +187,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       }
     }
-  }, [addNotification]); // Only depends on stable addNotification
+  }, [addNotification]); // addNotification es estable
 
   const checkExpiringMedicationsStock = useCallback(async (
     currentMedications: Medication[],
-    currentNotifications: Notification[],
+    upToDateNotifications: Notification[],
     currentAuthUser: User | null,
     currentDoctorProfile: UserProfile | null
   ) => {
@@ -195,19 +199,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     
     const today = new Date();
     const thirtyDaysLater = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const todayDateString = today.toISOString().split('T')[0]; // Para comparación de fechas de creación
 
     for (const med of currentMedications) {
         if (med.doctorId !== currentAuthUser.id) continue;
         const expirationDate = new Date(med.expirationDate);
         if (expirationDate > today && expirationDate <= thirtyDaysLater) {
-            const existingNotification = currentNotifications.find(
+            // Chequeo de duplicados más robusto:
+            // 1. Mismo tipo
+            // 2. Mismo doctor
+            // 3. El mensaje debe contener el nombre del medicamento Y la fecha de expiración exacta
+            // 4. (Opcional pero recomendado) No se haya creado una notificación similar hoy
+            const medExpirationDateString = new Date(med.expirationDate + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES');
+            const existingNotification = upToDateNotifications.find(
                 n => n.type === 'medication_expiring_soon_stock' && 
                      n.doctorId === currentAuthUser.id &&
-                     n.message.includes(`"${med.name}"`) &&
-                     n.message.includes(new Date(med.expirationDate + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES'))
+                     n.message.includes(`"${med.name}"`) && // Contiene el nombre del medicamento
+                     n.message.includes(medExpirationDateString) && // Contiene la fecha de expiración formateada
+                     (n.createdAt && n.createdAt.startsWith(todayDateString)) // Creada hoy
             );
+
             if (!existingNotification) {
-                const message = `Alerta de inventario: Su medicamento "${med.name}" (Principio Activo: ${med.activeIngredient}) vence el ${new Date(med.expirationDate + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES')}.`;
+                const message = `Alerta de inventario: Su medicamento "${med.name}" (Principio Activo: ${med.activeIngredient}) vence el ${medExpirationDateString}.`;
                 const notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
                     patientId: null, doctorId: currentAuthUser.id, message,
                     type: 'medication_expiring_soon_stock', status: 'pending',
@@ -216,9 +229,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             }
         }
     }
-  }, [addNotification]); // Only depends on stable addNotification
+  }, [addNotification]); // addNotification es estable
 
-
+  // internalLoadInitialData ahora también llama a los generadores después de cargar los datos
   const internalLoadInitialData = useCallback(async (authUser: User | null) => {
     if (!authUser) {
       setUserProfile(null);
@@ -232,7 +245,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLoadingData(true); setLoadingAppointments(true); setLoadingDoctors(true); 
     setLoadingVitalSigns(true); setLoadingMedicationIntakes(true); setLoadingNotifications(true);
     
-    const fetchedProfile = await fetchUserProfile(authUser.id); // This sets userProfile and loadingProfile
+    const fetchedProfile = await fetchUserProfile(authUser.id);
 
     try {
       const [
@@ -244,7 +257,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         vitalSignsData
       ] = await Promise.all([
         profileService.getAllDoctors(),
-        notificationService.getAll(), // Load all notifications
+        notificationService.getAll(),
         fetchedProfile?.role === 'doctor' ? patientService.getAll() : Promise.resolve([]),
         fetchedProfile?.role === 'doctor' ? medicationService.getAll() : Promise.resolve([]),
         fetchedProfile?.role === 'doctor' ? appointmentService.getAll() : Promise.resolve([]),
@@ -253,7 +266,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       setDoctors(resolvedDoctorsData || []);
       const initialNotifications = resolvedNotificationsData || [];
-      setNotifications(initialNotifications); // Set notifications first
+      setNotifications(initialNotifications);
       
       if (fetchedProfile?.role === 'doctor') {
         const currentPatients = patientsData || [];
@@ -266,14 +279,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setVitalSigns(vitalSignsData || []);
         setMedicationIntakes([]); 
 
-        // Call generators after all data is set, passing the fresh data
-        // This ensures they use the most up-to-date information for their checks.
-        // No need to await these if they are background tasks.
+        // Llamar a los generadores aquí, después de que todos los datos estén establecidos
+        // y pasarles los datos más frescos, incluyendo las notificaciones iniciales.
+        // Esto asegura que la primera verificación se haga con el estado completo.
         generateUpcomingAppointmentReminders(currentAppointments, currentPatients, initialNotifications, fetchedProfile);
         checkExpiringMedicationsStock(currentMedications, initialNotifications, authUser, fetchedProfile);
 
       } else {
-        // Clear data for non-doctors
         setPatients([]); setMedications([]); setAppointments([]);
         setVitalSigns([]); setMedicationIntakes([]);
       }
@@ -285,10 +297,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setLoadingData(false); setLoadingAppointments(false); setLoadingDoctors(false); 
       setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); setLoadingNotifications(false);
     }
-  }, [fetchUserProfile, generateUpcomingAppointmentReminders, checkExpiringMedicationsStock]); // Add generators as dependencies
+  }, [fetchUserProfile, generateUpcomingAppointmentReminders, checkExpiringMedicationsStock]); // Dependencias estables
   
 
-  // This useEffect handles the initial auth state and subsequent changes.
+  // useEffect para la autenticación, llama a internalLoadInitialData
   useEffect(() => {
     setLoadingAuth(true);
     let subscription: Subscription | undefined;
@@ -296,14 +308,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const { data: { session } } = await supabase.auth.getSession();
       const authUser = session?.user ?? null;
       setCurrentUser(authUser);
-      // internalLoadInitialData will be called, which now also calls the generators
       await internalLoadInitialData(authUser); 
       setLoadingAuth(false);
 
       const { data: authListenerData } = supabase.auth.onAuthStateChange(async (_event, session) => {
         const newAuthUser = session?.user ?? null;
-        setCurrentUser(newAuthUser);
-        await internalLoadInitialData(newAuthUser);
+        // Solo recargar todo si el usuario realmente cambia
+        if (newAuthUser?.id !== currentUser?.id || (!newAuthUser && currentUser)) {
+            setCurrentUser(newAuthUser);
+            await internalLoadInitialData(newAuthUser);
+        } else if (newAuthUser && !currentUser) { // Caso de login inicial después de que el listener ya estaba activo
+            setCurrentUser(newAuthUser);
+            await internalLoadInitialData(newAuthUser);
+        }
       });
       subscription = authListenerData.subscription;
     };
@@ -311,10 +328,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => {
       subscription?.unsubscribe();
     };
-  }, [internalLoadInitialData]); // internalLoadInitialData is stable
+  }, [internalLoadInitialData, currentUser]); // currentUser añadido para re-evaluar si cambia externamente
 
-  // Other CRUD functions (patients, medications, appointments, vitals, intakes) remain largely the same
-  // but ensure they use `addNotification` correctly if they need to generate notifications.
+  // useEffect separado para ejecutar generadores de notificaciones cuando los datos relevantes cambian,
+  // DESPUÉS de la carga inicial.
+  useEffect(() => {
+    // Solo ejecutar si no estamos en la carga inicial de datos Y el usuario es un doctor.
+    // Y si los datos necesarios (appointments, patients, medications, notifications) ya están cargados.
+    if (
+      !loadingData && // No durante la carga inicial general
+      userProfile?.role === 'doctor' &&
+      currentUser &&
+      !loadingAppointments && // Datos específicos cargados
+      !loadingMedications &&
+      !loadingNotifications // Notificaciones iniciales cargadas
+    ) {
+      // console.log("AppContext: useEffect[data] -> Calling notification generators.");
+      generateUpcomingAppointmentReminders(appointments, patients, notifications, userProfile);
+      checkExpiringMedicationsStock(medications, notifications, currentUser, userProfile);
+    }
+  }, [
+    userProfile, currentUser,
+    loadingData, loadingAppointments, loadingMedications, loadingNotifications, // Estados de carga
+    appointments, patients, medications, notifications, // Datos que pueden cambiar y requerir re-evaluación
+    generateUpcomingAppointmentReminders, checkExpiringMedicationsStock // Funciones memoizadas
+  ]);
+
 
   const addPatient = useCallback(async (patientData: Omit<Patient, 'id' | 'createdAt' | 'doctorId'>): Promise<Patient | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Solo los doctores pueden añadir pacientes."); throw new Error("User not authorized or not a doctor."); }
@@ -626,8 +665,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         vitalSigns, loadingVitalSigns, addVitalSign, updateVitalSign, deleteVitalSign, fetchVitalSignsForPatient,
         medicationIntakes, loadingMedicationIntakes, addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, fetchMedicationIntakesForPatient,
         notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, updateNotificationStatus,
-        generateUpcomingAppointmentReminders: () => generateUpcomingAppointmentReminders(notifications, patients, notifications, userProfile), // Wrapper to pass current state
-        checkExpiringMedicationsStock: () => checkExpiringMedicationsStock(medications, notifications, currentUser, userProfile), // Wrapper
+        // Expose wrappers for generator functions that pass the current state
+        generateUpcomingAppointmentReminders: () => {
+          if (userProfile?.role === 'doctor' && appointments && patients && notifications && userProfile) {
+            return generateUpcomingAppointmentReminders(appointments, patients, notifications, userProfile);
+          }
+          return Promise.resolve();
+        },
+        checkExpiringMedicationsStock: () => {
+          if (userProfile?.role === 'doctor' && medications && notifications && currentUser && userProfile) {
+            return checkExpiringMedicationsStock(medications, notifications, currentUser, userProfile);
+          }
+          return Promise.resolve();
+        },
         signOut,
         loadInitialData: stableLoadInitialData,
       }}
