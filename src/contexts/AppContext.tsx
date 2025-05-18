@@ -33,7 +33,7 @@ interface AppContextType {
   currentUser: User | null;
   userProfile: UserProfile | null;
   loadingAuth: boolean;
-  loadingData: boolean;
+  loadingData: boolean; // Indica la carga general de datos iniciales
   loadingProfile: boolean;
 
   patients: Patient[];
@@ -43,7 +43,7 @@ interface AppContextType {
   getPatientById: (id: string) => Patient | undefined;
 
   medications: Medication[];
-  loadingMedications: boolean; // Añadido para consistencia
+  loadingMedications: boolean; 
   addMedication: (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>) => Promise<Medication | undefined>;
   updateMedication: (id: string, updatedMedicationData: Partial<Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>>) => Promise<void>;
   deleteMedication: (id: string) => Promise<void>;
@@ -77,6 +77,8 @@ interface AppContextType {
   addNotification: (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Notification | undefined>;
   fetchNotificationsForPatient: (patientId: string) => Promise<Notification[]>;
   updateNotificationStatus: (notificationId: string, status: Notification['status']) => Promise<Notification | undefined>;
+  
+  // Wrappers are exposed if needed externally, otherwise generators are internal
   generateUpcomingAppointmentRemindersWrapper: () => Promise<void>; 
   checkExpiringMedicationsStockWrapper: () => Promise<void>;
 
@@ -102,7 +104,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const [loadingAppointments, setLoadingAppointments] = useState(true);
-  const [loadingMedications, setLoadingMedications] = useState(true); // Declaración de loadingMedications
+  const [loadingMedications, setLoadingMedications] = useState(true); // Declarado y manejado
   const [loadingDoctors, setLoadingDoctors] = useState(true);
   const [loadingVitalSigns, setLoadingVitalSigns] = useState(true);
   const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(true);
@@ -110,7 +112,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
-    if (!userId) { setUserProfile(null); return null; }
+    if (!userId) { setUserProfile(null); setLoadingProfile(false); return null; } // Ensure loadingProfile is set false
     setLoadingProfile(true);
     try {
       const profile = await profileService.getProfileByUserId(userId);
@@ -197,7 +199,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     
     const today = new Date();
     const thirtyDaysLater = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
-    // const todayDateString = today.toISOString().split('T')[0]; // No se usa para evitar bucles diarios si la notificación no se maneja
 
     for (const med of currentMedications) {
         if (med.doctorId !== currentAuthUser.id) continue;
@@ -206,7 +207,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const medExpirationDateString = new Date(med.expirationDate + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES');
             const potentialMessage = `Alerta de inventario: Su medicamento "${med.name}" (Principio Activo: ${med.activeIngredient}) vence el ${medExpirationDateString}.`;
             
-            // Comprobar si ya existe una notificación PENDIENTE o ENVIADA para este mensaje exacto
             const existingNotification = upToDateNotifications.find(
                 n => n.type === 'medication_expiring_soon_stock' && 
                      n.doctorId === currentAuthUser.id &&
@@ -231,13 +231,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setUserProfile(null);
       setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
       setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
-      setLoadingData(false); setLoadingAppointments(false); setLoadingDoctors(false); 
-      setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); setLoadingNotifications(false); setLoadingProfile(false);
-      setLoadingMedications(false); // Asegurar que se resetea
+      setLoadingData(false); setLoadingAppointments(false); setLoadingMedications(false); 
+      setLoadingDoctors(false); setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); 
+      setLoadingNotifications(false); setLoadingProfile(false);
       return;
     }
     
-    setLoadingData(true); setLoadingAppointments(true); setLoadingMedications(true); // Activar loadingMedications
+    setLoadingData(true); setLoadingAppointments(true); setLoadingMedications(true);
     setLoadingDoctors(true); setLoadingVitalSigns(true); setLoadingMedicationIntakes(true); 
     setLoadingNotifications(true); setLoadingProfile(true);
     
@@ -262,7 +262,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       setDoctors(resolvedDoctorsData || []);
       const initialNotifications = resolvedNotificationsData || [];
-      setNotifications(initialNotifications);
+      setNotifications(initialNotifications); // Set notifications state
       
       if (fetchedProfile?.role === 'doctor') {
         setPatients(patientsData || []);
@@ -279,9 +279,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.error("AppContext: Error loading initial data sets:", error);
       toast.error("No se pudieron cargar los datos de la aplicación.");
     } finally {
-      setLoadingData(false); setLoadingAppointments(false); setLoadingMedications(false); // Desactivar loadingMedications
+      setLoadingData(false); setLoadingAppointments(false); setLoadingMedications(false);
       setLoadingDoctors(false); setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); 
       setLoadingNotifications(false);
+      // setLoadingProfile is handled in fetchUserProfile
     }
   }, [fetchUserProfile]); 
   
@@ -301,7 +302,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (newAuthUser?.id !== currentUser?.id || (!newAuthUser && currentUser)) {
             setCurrentUser(newAuthUser);
             await internalLoadInitialData(newAuthUser);
-        } else if (newAuthUser && !currentUser) {
+        } else if (newAuthUser && !currentUser) { // Handle first login after listener is set
             setCurrentUser(newAuthUser);
             await internalLoadInitialData(newAuthUser);
         }
@@ -314,25 +315,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [internalLoadInitialData, currentUser]);
 
+  // useEffect for running notification generators AFTER all data is loaded and relevant data changes.
   useEffect(() => {
     let isMounted = true; 
 
     const runGenerators = async () => {
         if (isMounted && userProfile?.role === 'doctor' && currentUser && 
-            !loadingData && 
-            !loadingAppointments && 
-            !loadingMedications && // Usar el estado de carga correcto
-            !loadingNotifications && 
-            !loadingProfile && 
-            !loadingVitalSigns && 
-            !loadingDoctors
+            !loadingData && !loadingAppointments && !loadingMedications && 
+            !loadingNotifications && !loadingProfile && !loadingVitalSigns && !loadingDoctors
             ) {
+            // Pass the current 'notifications' state from the AppContext scope
             await generateUpcomingAppointmentReminders(appointments, patients, notifications, userProfile);
             await checkExpiringMedicationsStock(medications, notifications, currentUser, userProfile);
         }
     };
 
-    // Solo ejecutar si no estamos en la carga inicial general Y todos los datos específicos están cargados
+    // Condition to run generators: all loading flags must be false.
     if (!loadingData && !loadingAppointments && !loadingMedications && !loadingNotifications && 
         !loadingProfile && !loadingVitalSigns && !loadingDoctors) {
         runGenerators();
@@ -343,8 +341,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [
     userProfile, currentUser,
-    loadingData, loadingAppointments, loadingMedications, loadingNotifications, loadingProfile, loadingVitalSigns, loadingDoctors,
-    appointments, patients, medications, notifications,
+    // All loading states must be false before running
+    loadingData, loadingAppointments, loadingMedications, loadingNotifications, 
+    loadingProfile, loadingVitalSigns, loadingDoctors,
+    // Data arrays that generators depend on
+    appointments, patients, medications, 
+    // The 'notifications' state itself is a dependency here because its change might
+    // mean a previous generator run completed, and we might need to re-evaluate
+    // if other conditions still hold for generating *different* notifications.
+    // However, the internal duplicate checks in generators are key.
+    notifications, 
+    // Stable generator functions
     generateUpcomingAppointmentReminders, 
     checkExpiringMedicationsStock 
   ]);
@@ -647,23 +654,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []);
 
-  // Se usa internalLoadInitialData en el useEffect de autenticación, por lo que no necesitamos exponer stableLoadInitialData
-  // a menos que se llame desde fuera de este contexto de una manera que cambie.
-  // const stableLoadInitialData = useCallback(internalLoadInitialData, [internalLoadInitialData]);
-
-
-  // Wrappers para las funciones generadoras para que se pasen los estados actuales
   const generateUpcomingAppointmentRemindersWrapper = useCallback(() => {
-    if (userProfile?.role === 'doctor' && appointments && patients && userProfile) {
-      // Pasa el estado actual de 'notifications'
+    if (userProfile?.role === 'doctor' && appointments && patients && notifications && userProfile) {
       return generateUpcomingAppointmentReminders(appointments, patients, notifications, userProfile);
     }
     return Promise.resolve();
   }, [userProfile, appointments, patients, notifications, generateUpcomingAppointmentReminders]);
 
   const checkExpiringMedicationsStockWrapper = useCallback(() => {
-    if (userProfile?.role === 'doctor' && medications && currentUser && userProfile) {
-      // Pasa el estado actual de 'notifications'
+    if (userProfile?.role === 'doctor' && medications && notifications && currentUser && userProfile) {
       return checkExpiringMedicationsStock(medications, notifications, currentUser, userProfile);
     }
     return Promise.resolve();
@@ -675,7 +674,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       value={{
         currentUser, userProfile, loadingAuth, loadingData, loadingProfile,
         patients, addPatient, updatePatient, deletePatient, getPatientById,
-        medications, loadingMedications, // Asegúrate de que loadingMedications se expone aquí
+        medications, loadingMedications,
         addMedication, updateMedication, deleteMedication, getMedicationById,
         appointments, doctors, loadingAppointments, loadingDoctors,
         addAppointment: addAppointmentCb, updateAppointment: updateAppointmentCb, deleteAppointment: deleteAppointmentCb, getAppointmentById,
@@ -685,7 +684,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         generateUpcomingAppointmentRemindersWrapper,
         checkExpiringMedicationsStockWrapper,
         signOut,
-        loadInitialData: internalLoadInitialData, // Exponer internalLoadInitialData directamente ya que ahora es estable
+        loadInitialData: internalLoadInitialData, 
       }}
     >
       {children}
