@@ -73,7 +73,7 @@ export const appointmentService = {
       .select(`
         *,
         patient:patients (id, name, email),
-        doctor:doctors (id, name, specialty)
+        doctor:profiles (id, name, specialty)
       `)
       .single();
       
@@ -90,7 +90,7 @@ export const appointmentService = {
       .select(`
         *,
         patient:patients (id, name, email),
-        doctor:doctors (id, name, specialty)
+        doctor:profiles (id, name, specialty)
       `)
       .order('date', { ascending: false })
       .order('time', { ascending: false });
@@ -108,7 +108,7 @@ export const appointmentService = {
       .select(`
         *,
         patient:patients (id, name, email),
-        doctor:doctors (id, name, specialty)
+        doctor:profiles (id, name, specialty)
       `)
       .eq('id', id)
       .single();
@@ -131,7 +131,7 @@ export const appointmentService = {
       .select(`
         *,
         patient:patients (id, name, email),
-        doctor:doctors (id, name, specialty)
+        doctor:profiles (id, name, specialty)
       `)
       .single();
       
