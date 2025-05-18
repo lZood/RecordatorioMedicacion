@@ -74,6 +74,34 @@ export interface AppointmentDoctorInfo {
   specialty?: string;
 }
 
+// Podrías añadir una interfaz para los datos específicos del reporte de adherencia si se vuelve complejo
+export interface MedicationAdherenceData {
+  patientId: string;
+  patientName: string;
+  totalIntakesScheduled: number;
+  totalIntakesTaken: number;
+  adherenceRate: number; // Como porcentaje
+  period?: string; // Ejemplo: "01/05/2025 - 15/05/2025"
+}
+
+// La interfaz Report existente puede usarse para metadatos de reportes guardados
+export interface Report {
+  id: string; // Podría ser un UUID generado al guardar
+  patientId?: string | null; // Si el reporte es específico de un paciente
+  doctorGeneratedId?: string; // ID del doctor que generó el reporte
+  reportType: string; // Ej: 'medication-adherence', 'vital-signs'
+  generatedAt: string; // Timestamp ISO
+  filtersApplied?: { // Qué filtros se usaron para este reporte guardado
+    dateFrom?: string;
+    dateTo?: string;
+    specificPatientId?: string;
+    // otros filtros...
+  };
+  fileName?: string; // Nombre del archivo descargado
+  format: 'CSV' | 'PDF';
+  // data: any; // Podrías omitir guardar todos los datos si son muy grandes, o guardar un resumen
+}
+
 export interface Appointment {
   id: string;
   patientId: string;
