@@ -44,7 +44,7 @@ interface AppContextType {
 
   medications: Medication[];
   loadingMedications: boolean; 
-  addMedication: (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>) => Promise<Medication | undefined>;
+  addMedication: (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt' | 'notificacion_stock_expirando_enviada'>) => Promise<Medication | undefined>;
   updateMedication: (id: string, updatedMedicationData: Partial<Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>>) => Promise<void>;
   deleteMedication: (id: string) => Promise<void>;
   getMedicationById: (id: string) => Medication | undefined;
@@ -53,7 +53,7 @@ interface AppContextType {
   doctors: UserProfile[];
   loadingAppointments: boolean;
   loadingDoctors: boolean;
-  addAppointment: (appointmentData: Omit<Appointment, 'id'>) => Promise<Appointment | undefined>;
+  addAppointment: (appointmentData: Omit<Appointment, 'id' | 'notificacion_recordatorio_24h_enviada'>) => Promise<Appointment | undefined>;
   updateAppointment: (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>) => Promise<Appointment | undefined>;
   deleteAppointment: (id: string) => Promise<void>;
   getAppointmentById: (id: string) => Appointment | undefined;
@@ -78,9 +78,6 @@ interface AppContextType {
   fetchNotificationsForPatient: (patientId: string) => Promise<Notification[]>;
   updateNotificationStatus: (notificationId: string, status: Notification['status']) => Promise<Notification | undefined>;
   
-  generateUpcomingAppointmentRemindersWrapper: () => Promise<void>; 
-  checkExpiringMedicationsStockWrapper: () => Promise<void>;
-
   signOut: () => Promise<void>;
   loadInitialData: (user: User | null) => Promise<void>;
 }
@@ -103,7 +100,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const [loadingAppointments, setLoadingAppointments] = useState(true);
-  const [loadingMedications, setLoadingMedications] = useState(true); // CORREGIDO: Declarado loadingMedications
+  const [loadingMedications, setLoadingMedications] = useState(true);
   const [loadingDoctors, setLoadingDoctors] = useState(true);
   const [loadingVitalSigns, setLoadingVitalSigns] = useState(true);
   const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(true);
@@ -145,18 +142,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (dataToCreate.type !== 'appointment_reminder_24h' && 
           dataToCreate.type !== 'abnormal_vital_sign' &&
           dataToCreate.type !== 'medication_expiring_soon_stock') {
-          toast.error(`Error al guardar notificación: ${error.message || 'Error desconocido'}`); 
+          // toast.error(`Error al guardar notificación: ${error.message || 'Error desconocido'}`); 
       }
-      throw error; 
+      // No relanzar para no romper el flujo de generadores automáticos
+      // throw error; 
     }
     return undefined;
   }, [currentUser, userProfile]);
 
 
+  const updateAppointmentFlag = useCallback(async (appointmentId: string, flagUpdates: Partial<Pick<Appointment, 'notificacion_recordatorio_24h_enviada'>>) => {
+    try {
+        const updatedAppointment = await appointmentService.update(appointmentId, flagUpdates);
+        if (updatedAppointment) {
+            setAppointments(prev => prev.map(appt => appt.id === appointmentId ? { ...appt, ...updatedAppointment } : appt));
+        }
+    } catch (error) {
+        console.error(`Error actualizando flag de notificación para cita ${appointmentId}:`, error);
+    }
+  }, []);
+
+  const updateMedicationFlag = useCallback(async (medicationId: string, flagUpdates: Partial<Pick<Medication, 'notificacion_stock_expirando_enviada'>>) => {
+    try {
+        const updatedMedication = await medicationService.update(medicationId, flagUpdates);
+        if (updatedMedication) {
+            setMedications(prev => prev.map(med => med.id === medicationId ? { ...med, ...updatedMedication } : med));
+        }
+    } catch (error) {
+        console.error(`Error actualizando flag de notificación para medicamento ${medicationId}:`, error);
+    }
+  }, []);
+
+
   const generateUpcomingAppointmentReminders = useCallback(async (
     currentAppointments: Appointment[], 
     currentPatients: Patient[], 
-    upToDateNotifications: Notification[], 
     currentDoctorProfile: UserProfile | null
   ) => {
     if (currentDoctorProfile?.role !== 'doctor' || !currentAppointments.length || !currentPatients.length) return;
@@ -165,32 +185,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
     for (const appt of currentAppointments) {
-      if (appt.status === 'scheduled') {
+      if (appt.status === 'scheduled' && !appt.notificacion_recordatorio_24h_enviada) {
         const appointmentDateTime = new Date(`${appt.date}T${appt.time}`);
         if (appointmentDateTime > now && appointmentDateTime <= twentyFourHoursLater) {
-          const existingReminder = upToDateNotifications.find(
-            n => n.appointmentId === appt.id && n.type === 'appointment_reminder_24h' && (n.status === 'pending' || n.status === 'sent')
-          );
-          if (!existingReminder) {
-            const patient = currentPatients.find(p => p.id === appt.patientId);
-            if (patient && currentDoctorProfile) {
-              const message = `Recordatorio automático: Su cita de ${appt.specialty} con ${currentDoctorProfile.name} es mañana, ${new Date(appt.date + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES', { weekday: 'long', month: 'long', day: 'numeric' })} a las ${new Date(`1970-01-01T${appt.time}`).toLocaleTimeString(navigator.language || 'es-ES', { hour: '2-digit', minute: '2-digit', hour12: true })}.`;
-              const reminderData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
-                patientId: patient.id, appointmentId: appt.id, doctorId: appt.doctorId, message,
-                type: 'appointment_reminder_24h', status: 'pending', 
-                sendAt: new Date(appointmentDateTime.getTime() - 24 * 60 * 60 * 1000).toISOString(),
-              };
-              try { await addNotification(reminderData); } catch (e) { /* silent */ }
-            }
+          const patient = currentPatients.find(p => p.id === appt.patientId);
+          if (patient && currentDoctorProfile) {
+            const message = `Recordatorio automático: Su cita de ${appt.specialty} con ${currentDoctorProfile.name} es mañana, ${new Date(appt.date + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES', { weekday: 'long', month: 'long', day: 'numeric' })} a las ${new Date(`1970-01-01T${appt.time}`).toLocaleTimeString(navigator.language || 'es-ES', { hour: '2-digit', minute: '2-digit', hour12: true })}.`;
+            const reminderData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
+              patientId: patient.id, appointmentId: appt.id, doctorId: appt.doctorId, message,
+              type: 'appointment_reminder_24h', status: 'pending', 
+              sendAt: new Date(appointmentDateTime.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+            };
+            try { 
+              await addNotification(reminderData);
+              await updateAppointmentFlag(appt.id, { notificacion_recordatorio_24h_enviada: true });
+            } catch (e) { /* Error ya logueado en addNotification o updateAppointmentFlag */ }
           }
         }
       }
     }
-  }, [addNotification]);
+  }, [addNotification, updateAppointmentFlag]);
 
   const checkExpiringMedicationsStock = useCallback(async (
     currentMedications: Medication[],
-    upToDateNotifications: Notification[],
     currentAuthUser: User | null,
     currentDoctorProfile: UserProfile | null
   ) => {
@@ -201,28 +218,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     for (const med of currentMedications) {
         if (med.doctorId !== currentAuthUser.id) continue;
+        if (med.notificacion_stock_expirando_enviada) continue; 
+
         const expirationDate = new Date(med.expirationDate);
         if (expirationDate > today && expirationDate <= thirtyDaysLater) {
             const medExpirationDateString = new Date(med.expirationDate + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES');
-            const potentialMessage = `Alerta de inventario: Su medicamento "${med.name}" (Principio Activo: ${med.activeIngredient}) vence el ${medExpirationDateString}.`;
+            const message = `Alerta de inventario: Su medicamento "${med.name}" (Principio Activo: ${med.activeIngredient}) vence el ${medExpirationDateString}.`;
             
-            const existingNotification = upToDateNotifications.find(
-                n => n.type === 'medication_expiring_soon_stock' && 
-                     n.doctorId === currentAuthUser.id &&
-                     n.message === potentialMessage && 
-                     (n.status === 'pending' || n.status === 'sent') 
-            );
-
-            if (!existingNotification) {
-                const notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
-                    patientId: null, doctorId: currentAuthUser.id, message: potentialMessage,
-                    type: 'medication_expiring_soon_stock', status: 'pending',
-                };
-                try { await addNotification(notificationData); } catch (e) { /* silent */ }
-            }
+            const notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
+                patientId: null, doctorId: currentAuthUser.id, message: message,
+                type: 'medication_expiring_soon_stock', status: 'pending',
+            };
+            try { 
+              await addNotification(notificationData);
+              await updateMedicationFlag(med.id, { notificacion_stock_expirando_enviada: true });
+            } catch (e) { /* Error ya logueado */ }
         }
     }
-  }, [addNotification]);
+  }, [addNotification, updateMedicationFlag]);
 
 
   const internalLoadInitialData = useCallback(async (authUser: User | null) => {
@@ -260,8 +273,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ]);
 
       setDoctors(resolvedDoctorsData || []);
-      const initialNotifications = resolvedNotificationsData || [];
-      setNotifications(initialNotifications);
+      setNotifications(resolvedNotificationsData || []);
       
       if (fetchedProfile?.role === 'doctor') {
         setPatients(patientsData || []);
@@ -285,43 +297,57 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [fetchUserProfile]); 
   
 
-  // useEffect for Authentication State Changes
   useEffect(() => {
     setLoadingAuth(true);
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         const user = session?.user ?? null;
-        // console.log("Auth state change detected. User:", user?.id);
+        const previousUserId = currentUser?.id;
         setCurrentUser(user);
-        await internalLoadInitialData(user); // Load data based on new auth state
-        setLoadingAuth(false);
+        if (user?.id !== previousUserId || (!user && previousUserId)) { 
+            await internalLoadInitialData(user);
+        } else if (user && !previousUserId && !loadingAuth) { // First load after listener setup
+            await internalLoadInitialData(user);
+        }
+        setLoadingAuth(false); // Set loadingAuth to false after initial check / change
       }
     );
+    // Initial check in case onAuthStateChange doesn't fire immediately
+    (async () => {
+        if (loadingAuth) { // Only if still in initial auth loading phase
+            const { data: { session } } = await supabase.auth.getSession();
+            const user = session?.user ?? null;
+            if (user?.id !== currentUser?.id || (!user && currentUser)) {
+                setCurrentUser(user);
+                await internalLoadInitialData(user);
+            }
+            setLoadingAuth(false);
+        }
+    })();
+
     return () => {
       subscription?.unsubscribe();
     };
-  }, [internalLoadInitialData]); // internalLoadInitialData is stable
+  }, [internalLoadInitialData, currentUser]); // currentUser for re-check if it changes by other means (though unlikely)
 
-  // useEffect for running notification generators AFTER all data is loaded and relevant data changes.
+  // useEffect for running notification generators
   useEffect(() => {
     let isMounted = true; 
-    const runGenerators = async () => {
+    const runNotificationChecks = async () => {
         if (isMounted && userProfile?.role === 'doctor' && currentUser && 
             !loadingData && !loadingAppointments && !loadingMedications && 
             !loadingNotifications && !loadingProfile && !loadingVitalSigns && !loadingDoctors
             ) {
-            // Pass the current 'notifications' state from the AppContext scope
-            // console.log("AppContext: useEffect[data changes] -> Calling notification generators with notifications count:", notifications.length);
-            await generateUpcomingAppointmentReminders(appointments, patients, notifications, userProfile);
-            await checkExpiringMedicationsStock(medications, notifications, currentUser, userProfile);
+            // console.log("AppContext: useEffect[data loaded] -> Calling notification generators.");
+            await generateUpcomingAppointmentReminders(appointments, patients, userProfile);
+            await checkExpiringMedicationsStock(medications, currentUser, userProfile);
         }
     };
 
-    // Condition to run generators: all loading flags must be false.
+    // Run only when all data is loaded
     if (!loadingData && !loadingAppointments && !loadingMedications && !loadingNotifications && 
         !loadingProfile && !loadingVitalSigns && !loadingDoctors) {
-        // console.log("AppContext: All data loaded, attempting to run generators.");
-        runGenerators();
+        runNotificationChecks();
     }
 
     return () => {
@@ -331,8 +357,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     userProfile, currentUser,
     loadingData, loadingAppointments, loadingMedications, loadingNotifications, 
     loadingProfile, loadingVitalSigns, loadingDoctors,
-    appointments, patients, medications, 
-    notifications, // Include notifications here, but ensure generator logic is robust against re-runs
+    appointments, patients, medications, // Data arrays are dependencies
+    // No 'notifications' state here to prevent loop from its own updates
     generateUpcomingAppointmentReminders, 
     checkExpiringMedicationsStock 
   ]);
@@ -372,12 +398,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return patients.find(p => p.id === id);
   }, [patients]);
 
-  const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>): Promise<Medication | undefined> => {
+  const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt' | 'notificacion_stock_expirando_enviada'>): Promise<Medication | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Solo los doctores pueden añadir medicamentos."); throw new Error("User not authorized or not a doctor."); }
     if (!currentUser.id) { toast.error("Falta ID del doctor."); throw new Error("Doctor ID is missing.");}
     try {
-      const medicationDataWithDoctorId: Omit<Medication, 'id' | 'createdAt' | 'updatedAt'> = { ...medicationData, doctorId: currentUser.id };
-      const newMed = await medicationService.create(medicationDataWithDoctorId);
+      const medicationDataWithDoctorId: Omit<Medication, 'id' | 'createdAt' | 'updatedAt'> = { 
+        ...medicationData, 
+        doctorId: currentUser.id,
+        notificacion_stock_expirando_enviada: false 
+      };
+      const newMed = await medicationService.create(medicationDataWithDoctorId as Omit<Medication, 'id' | 'createdAt' | 'updatedAt' | 'notificacion_stock_expirando_enviada'>);
       if (newMed) { 
         setMedications(prev => [...prev, newMed].sort((a,b) => a.name.localeCompare(b.name))); 
         toast.success('Medicamento añadido!'); 
@@ -390,7 +420,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return undefined;
   }, [currentUser, userProfile]);
   
-  const updateMedication = useCallback(async (id: string, updatedData: Partial<Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>>): Promise<void> => {
+  const updateMedicationCb = useCallback(async (id: string, updatedData: Partial<Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>>): Promise<void> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Error de autenticación/Rol de doctor necesario"); throw new Error("User not authorized or not a doctor."); }
     try {
         const updated = await medicationService.update(id, updatedData);
@@ -414,11 +444,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return medications.find(m => m.id === id);
   }, [medications]);
 
-  const addAppointmentCb = useCallback(async (appointmentData: Omit<Appointment, 'id'>): Promise<Appointment | undefined> => {
+  const addAppointmentCb = useCallback(async (appointmentData: Omit<Appointment, 'id' | 'notificacion_recordatorio_24h_enviada'>): Promise<Appointment | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { toast.error("Error de autenticación/Rol de doctor necesario"); throw new Error("User not authorized or not a doctor."); }
-    const dataWithCorrectDoctor = { ...appointmentData, doctorId: currentUser.id };
+    const dataWithCorrectDoctor: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'> = { 
+        ...appointmentData, 
+        doctorId: currentUser.id,
+    };
     try {
-      const newAppointment = await appointmentService.create(dataWithCorrectDoctor);
+      const newAppointment = await appointmentService.create(dataWithCorrectDoctor as Omit<Appointment, 'id'>);
       if (newAppointment) {
         setAppointments(prev => [...prev, newAppointment].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
         toast.success('Cita programada!');
@@ -636,14 +669,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
   const generateUpcomingAppointmentRemindersWrapper = useCallback(() => {
-    if (userProfile?.role === 'doctor' && appointments && patients && notifications && userProfile) {
+    if (userProfile?.role === 'doctor' && appointments && patients && userProfile) {
       return generateUpcomingAppointmentReminders(appointments, patients, notifications, userProfile);
     }
     return Promise.resolve();
   }, [userProfile, appointments, patients, notifications, generateUpcomingAppointmentReminders]);
 
   const checkExpiringMedicationsStockWrapper = useCallback(() => {
-    if (userProfile?.role === 'doctor' && medications && notifications && currentUser && userProfile) {
+    if (userProfile?.role === 'doctor' && medications && currentUser && userProfile) {
       return checkExpiringMedicationsStock(medications, notifications, currentUser, userProfile);
     }
     return Promise.resolve();
@@ -656,9 +689,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         currentUser, userProfile, loadingAuth, loadingData, loadingProfile,
         patients, addPatient, updatePatient, deletePatient, getPatientById,
         medications, loadingMedications,
-        addMedication, updateMedication, deleteMedication, getMedicationById,
+        addMedication, updateMedication: updateMedicationCb, 
+        deleteMedication, getMedicationById,
         appointments, doctors, loadingAppointments, loadingDoctors,
-        addAppointment: addAppointmentCb, updateAppointment: updateAppointmentCb, deleteAppointment: deleteAppointmentCb, getAppointmentById,
+        addAppointment: addAppointmentCb, updateAppointment: updateAppointmentCb, 
+        deleteAppointment: deleteAppointmentCb, getAppointmentById,
         vitalSigns, loadingVitalSigns, addVitalSign, updateVitalSign, deleteVitalSign, fetchVitalSignsForPatient,
         medicationIntakes, loadingMedicationIntakes, addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, fetchMedicationIntakesForPatient,
         notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, updateNotificationStatus,
