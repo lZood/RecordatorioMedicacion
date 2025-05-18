@@ -1,45 +1,87 @@
 // src/services/appointments.ts
 import { supabase } from '../lib/supabase';
-import { Appointment } from '../types'; // Tu tipo Appointment usa camelCase
+import { Appointment, AppointmentPatientInfo, AppointmentDoctorInfo } from '../types';
 
-// Helper para mapear de camelCase (app) a snake_case (DB)
-const mapAppointmentToDb = (appointmentData: Partial<Omit<Appointment, 'id'>>) => {
+// Función para mapear de camelCase (app) a snake_case (DB)
+const mapAppointmentToDb = (appointmentData: Partial<Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor'>>) => {
   const dbData: { [key: string]: any } = {};
   if (appointmentData.patientId !== undefined) dbData.patient_id = appointmentData.patientId;
   if (appointmentData.doctorId !== undefined) dbData.doctor_id = appointmentData.doctorId;
   if (appointmentData.specialty !== undefined) dbData.specialty = appointmentData.specialty;
   if (appointmentData.date !== undefined) dbData.date = appointmentData.date;
   if (appointmentData.time !== undefined) dbData.time = appointmentData.time;
-  if (appointmentData.diagnosis !== undefined) dbData.diagnosis = appointmentData.diagnosis ?? null;
+  if (appointmentData.diagnosis !== undefined) dbData.diagnosis = appointmentData.diagnosis;
   if (appointmentData.status !== undefined) dbData.status = appointmentData.status;
-  // created_at y updated_at son manejados por la DB
+  // Nuevo flag
+  if (appointmentData.notificacion_recordatorio_24h_enviada !== undefined) {
+    dbData.notificacion_recordatorio_24h_enviada = appointmentData.notificacion_recordatorio_24h_enviada;
+  }
   return dbData;
 };
 
+// Función para mapear de snake_case (DB) a camelCase (app)
+const mapDbToAppointment = (dbRecord: any): Appointment | null => {
+  if (!dbRecord) return null;
+  
+  let patientInfo: AppointmentPatientInfo | null = null;
+  if (dbRecord.patients) { // 'patients' es el alias de la relación en Supabase
+    patientInfo = {
+      id: dbRecord.patients.id,
+      name: dbRecord.patients.name,
+      email: dbRecord.patients.email,
+    };
+  }
+
+  let doctorInfo: AppointmentDoctorInfo | null = null;
+  if (dbRecord.doctors) { // 'doctors' es el alias de la relación en Supabase
+    doctorInfo = {
+      id: dbRecord.doctors.id,
+      name: dbRecord.doctors.name,
+      specialty: dbRecord.doctors.specialty,
+    };
+  }
+
+  const appointment: Appointment = {
+    id: dbRecord.id,
+    patientId: dbRecord.patient_id,
+    doctorId: dbRecord.doctor_id,
+    specialty: dbRecord.specialty,
+    date: dbRecord.date,
+    time: dbRecord.time,
+    diagnosis: dbRecord.diagnosis,
+    status: dbRecord.status,
+    createdAt: dbRecord.created_at,
+    updatedAt: dbRecord.updated_at,
+    patient: patientInfo,
+    doctor: doctorInfo,
+    notificacion_recordatorio_24h_enviada: dbRecord.notificacion_recordatorio_24h_enviada, // Nuevo flag
+  };
+  return appointment;
+};
 
 export const appointmentService = {
-  async create(appointmentDataFromApp: Omit<Appointment, 'id'>): Promise<Appointment | null> {
-    const dataToInsert = mapAppointmentToDb(appointmentDataFromApp);
-    console.log("appointmentService: Insertando (snake_case):", dataToInsert);
-
+  async create(appointmentDataFromApp: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'>): Promise<Appointment | null> {
+    // Asegurar que el flag se inicialice si es necesario, aunque la BD tiene DEFAULT FALSE
+    const dataToInsert = mapAppointmentToDb({
+        ...appointmentDataFromApp,
+        notificacion_recordatorio_24h_enviada: false 
+    });
+    
     const { data, error } = await supabase
       .from('appointments')
       .insert(dataToInsert)
       .select(`
         *,
-        patient:patients(id, name),
-        doctor:profiles(id, name, specialty)
-      `) // Solicitar datos anidados también en la creación
+        patient:patients (id, name, email),
+        doctor:doctors (id, name, specialty)
+      `)
       .single();
-
+      
     if (error) {
-      console.error("appointmentService: Error de Supabase al crear cita:", error);
+      console.error("appointmentService: Error creando cita:", error);
       throw error;
     }
-    console.log("appointmentService: Creación exitosa, datos devueltos (deberían ser camelCase):", data);
-    // El cliente Supabase debería convertir las claves a camelCase, incluyendo las anidadas.
-    // Realiza un cast explícito si es necesario para que coincida con tu tipo Appointment enriquecido.
-    return data as any | null; // Usar 'any' temporalmente si el tipo Appointment no incluye patient/doctor anidados
+    return data ? mapDbToAppointment(data) : null;
   },
 
   async getAll(): Promise<Appointment[]> {
@@ -47,19 +89,17 @@ export const appointmentService = {
       .from('appointments')
       .select(`
         *,
-        patient:patients(id, name),
-        doctor:profiles(id, name, specialty)
-      `) // El cliente Supabase convierte a camelCase, incluyendo los objetos anidados
-      .order('date', { ascending: true })
-      .order('time', { ascending: true });
-
-
+        patient:patients (id, name, email),
+        doctor:doctors (id, name, specialty)
+      `)
+      .order('date', { ascending: false })
+      .order('time', { ascending: false });
+      
     if (error) {
-      console.error("appointmentService: Error de Supabase al obtener todas las citas:", error);
+      console.error("appointmentService: Error obteniendo todas las citas:", error);
       throw error;
     }
-    console.log("appointmentService: Datos de getAll (deberían ser camelCase):", data);
-    return (data as any[]) || []; // Usar 'any[]' temporalmente
+    return data ? data.map(mapDbToAppointment).filter(a => a !== null) as Appointment[] : [];
   },
 
   async getById(id: string): Promise<Appointment | null> {
@@ -67,60 +107,39 @@ export const appointmentService = {
       .from('appointments')
       .select(`
         *,
-        patient:patients(id, name),
-        doctor:profiles(id, name, specialty)
+        patient:patients (id, name, email),
+        doctor:doctors (id, name, specialty)
       `)
       .eq('id', id)
       .single();
 
     if (error) {
-      console.error(`appointmentService: Error de Supabase al obtener cita por ID ${id}:`, error);
+      if (error.code === 'PGRST116') return null; // Not found
+      console.error(`appointmentService: Error obteniendo cita ID ${id}:`, error);
       throw error;
     }
-    return data as any | null; // Usar 'any | null' temporalmente
+    return data ? mapDbToAppointment(data) : null;
   },
 
-  async getByPatient(patientId: string): Promise<Appointment[]> {
-    const { data, error } = await supabase
-      .from('appointments')
-      .select(`
-        *,
-        patient:patients(id, name),
-        doctor:profiles(id, name, specialty)
-      `)
-      .eq('patient_id', patientId)
-      .order('date', { ascending: true })
-      .order('time', { ascending: true });
-
-    if (error) {
-      console.error(`appointmentService: Error de Supabase al obtener citas para paciente ${patientId}:`, error);
-      throw error;
-    }
-    return (data as any[]) || [];
-  },
-
-
-  async update(id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>): Promise<Appointment | null> {
+  async update(id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor'>>): Promise<Appointment | null> {
     const dataToUpdate = mapAppointmentToDb(appointmentUpdateData);
-    console.log(`appointmentService: Actualizando (ID: ${id}, snake_case):`, dataToUpdate);
-
+    
     const { data, error } = await supabase
       .from('appointments')
       .update(dataToUpdate)
       .eq('id', id)
       .select(`
         *,
-        patient:patients(id, name),
-        doctor:profiles(id, name, specialty)
-      `) // Solicitar datos anidados también en la actualización
+        patient:patients (id, name, email),
+        doctor:doctors (id, name, specialty)
+      `)
       .single();
-
+      
     if (error) {
-      console.error(`appointmentService: Error de Supabase al actualizar cita ID ${id}:`, error);
+      console.error(`appointmentService: Error actualizando cita ID ${id}:`, error);
       throw error;
     }
-    console.log("appointmentService: Actualización exitosa, datos devueltos (camelCase):", data);
-    return data as any | null; // Usar 'any | null' temporalmente
+    return data ? mapDbToAppointment(data) : null;
   },
 
   async delete(id: string): Promise<void> {
@@ -128,9 +147,9 @@ export const appointmentService = {
       .from('appointments')
       .delete()
       .eq('id', id);
-
+      
     if (error) {
-      console.error(`appointmentService: Error de Supabase al eliminar cita ID ${id}:`, error);
+      console.error(`appointmentService: Error eliminando cita ID ${id}:`, error);
       throw error;
     }
   }
