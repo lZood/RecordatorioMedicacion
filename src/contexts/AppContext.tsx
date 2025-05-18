@@ -33,7 +33,7 @@ interface AppContextType {
   currentUser: User | null;
   userProfile: UserProfile | null;
   loadingAuth: boolean;
-  loadingData: boolean; // Indica la carga general de datos iniciales
+  loadingData: boolean; 
   loadingProfile: boolean;
 
   patients: Patient[];
@@ -78,7 +78,6 @@ interface AppContextType {
   fetchNotificationsForPatient: (patientId: string) => Promise<Notification[]>;
   updateNotificationStatus: (notificationId: string, status: Notification['status']) => Promise<Notification | undefined>;
   
-  // Wrappers are exposed if needed externally, otherwise generators are internal
   generateUpcomingAppointmentRemindersWrapper: () => Promise<void>; 
   checkExpiringMedicationsStockWrapper: () => Promise<void>;
 
@@ -104,7 +103,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const [loadingAppointments, setLoadingAppointments] = useState(true);
-  const [loadingMedications, setLoadingMedications] = useState(true); // Declarado y manejado
+  const [loadingMedications, setLoadingMedications] = useState(true); // CORREGIDO: Declarado loadingMedications
   const [loadingDoctors, setLoadingDoctors] = useState(true);
   const [loadingVitalSigns, setLoadingVitalSigns] = useState(true);
   const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(true);
@@ -112,7 +111,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
-    if (!userId) { setUserProfile(null); setLoadingProfile(false); return null; } // Ensure loadingProfile is set false
+    if (!userId) { setUserProfile(null); setLoadingProfile(false); return null; }
     setLoadingProfile(true);
     try {
       const profile = await profileService.getProfileByUserId(userId);
@@ -262,7 +261,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       setDoctors(resolvedDoctorsData || []);
       const initialNotifications = resolvedNotificationsData || [];
-      setNotifications(initialNotifications); // Set notifications state
+      setNotifications(initialNotifications);
       
       if (fetchedProfile?.role === 'doctor') {
         setPatients(patientsData || []);
@@ -282,49 +281,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setLoadingData(false); setLoadingAppointments(false); setLoadingMedications(false);
       setLoadingDoctors(false); setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); 
       setLoadingNotifications(false);
-      // setLoadingProfile is handled in fetchUserProfile
     }
   }, [fetchUserProfile]); 
   
 
+  // useEffect for Authentication State Changes
   useEffect(() => {
     setLoadingAuth(true);
-    let subscription: Subscription | undefined;
-    const checkSessionAndSubscribe = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const authUser = session?.user ?? null;
-      setCurrentUser(authUser);
-      await internalLoadInitialData(authUser); 
-      setLoadingAuth(false);
-
-      const { data: authListenerData } = supabase.auth.onAuthStateChange(async (_event, session) => {
-        const newAuthUser = session?.user ?? null;
-        if (newAuthUser?.id !== currentUser?.id || (!newAuthUser && currentUser)) {
-            setCurrentUser(newAuthUser);
-            await internalLoadInitialData(newAuthUser);
-        } else if (newAuthUser && !currentUser) { // Handle first login after listener is set
-            setCurrentUser(newAuthUser);
-            await internalLoadInitialData(newAuthUser);
-        }
-      });
-      subscription = authListenerData.subscription;
-    };
-    checkSessionAndSubscribe();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        const user = session?.user ?? null;
+        // console.log("Auth state change detected. User:", user?.id);
+        setCurrentUser(user);
+        await internalLoadInitialData(user); // Load data based on new auth state
+        setLoadingAuth(false);
+      }
+    );
     return () => {
       subscription?.unsubscribe();
     };
-  }, [internalLoadInitialData, currentUser]);
+  }, [internalLoadInitialData]); // internalLoadInitialData is stable
 
   // useEffect for running notification generators AFTER all data is loaded and relevant data changes.
   useEffect(() => {
     let isMounted = true; 
-
     const runGenerators = async () => {
         if (isMounted && userProfile?.role === 'doctor' && currentUser && 
             !loadingData && !loadingAppointments && !loadingMedications && 
             !loadingNotifications && !loadingProfile && !loadingVitalSigns && !loadingDoctors
             ) {
             // Pass the current 'notifications' state from the AppContext scope
+            // console.log("AppContext: useEffect[data changes] -> Calling notification generators with notifications count:", notifications.length);
             await generateUpcomingAppointmentReminders(appointments, patients, notifications, userProfile);
             await checkExpiringMedicationsStock(medications, notifications, currentUser, userProfile);
         }
@@ -333,6 +320,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // Condition to run generators: all loading flags must be false.
     if (!loadingData && !loadingAppointments && !loadingMedications && !loadingNotifications && 
         !loadingProfile && !loadingVitalSigns && !loadingDoctors) {
+        // console.log("AppContext: All data loaded, attempting to run generators.");
         runGenerators();
     }
 
@@ -341,17 +329,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [
     userProfile, currentUser,
-    // All loading states must be false before running
     loadingData, loadingAppointments, loadingMedications, loadingNotifications, 
     loadingProfile, loadingVitalSigns, loadingDoctors,
-    // Data arrays that generators depend on
     appointments, patients, medications, 
-    // The 'notifications' state itself is a dependency here because its change might
-    // mean a previous generator run completed, and we might need to re-evaluate
-    // if other conditions still hold for generating *different* notifications.
-    // However, the internal duplicate checks in generators are key.
-    notifications, 
-    // Stable generator functions
+    notifications, // Include notifications here, but ensure generator logic is robust against re-runs
     generateUpcomingAppointmentReminders, 
     checkExpiringMedicationsStock 
   ]);
