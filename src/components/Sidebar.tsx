@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom'; // Importa useNavigate
+// src/components/Sidebar.tsx
+import React from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
@@ -8,93 +9,151 @@ import {
   Activity,
   FileText,
   LogOut,
-  ChevronLeft,
-  ChevronRight
+  Briefcase, // Ícono para el logo
+  Settings, // Ícono de ejemplo para "Configuración"
+  Bell // Ícono para "Notificaciones"
 } from 'lucide-react';
-import { useAppContext } from '../contexts/AppContext'; // Importa useAppContext
+import { useAppContext } from '../contexts/AppContext';
 
-const Sidebar: React.FC = () => {
-  const [collapsed, setCollapsed] = useState(false);
-  const { signOut, currentUser } = useAppContext(); // Obtén signOut y currentUser del contexto
-  const navigate = useNavigate(); // Hook para la navegación
+interface SidebarProps {
+  isDesktopCollapsed: boolean;
+  setIsDesktopCollapsed: (collapsed: boolean) => void;
+  isMobileOpen?: boolean; // Para controlar la visibilidad en móviles desde Layout
+  toggleMobileSidebar?: () => void; // Para cerrar desde un ítem de menú si es necesario
+}
 
-  const navItems = [
-    { to: '/', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-    { to: '/patients', icon: <Users size={20} />, label: 'Patients' },
-    { to: '/medications', icon: <Pill size={20} />, label: 'Medications' },
-    { to: '/appointments', icon: <Calendar size={20} />, label: 'Appointments' },
-    { to: '/vitals', icon: <Activity size={20} />, label: 'Vital Signs' },
-    { to: '/reports', icon: <FileText size={20} />, label: 'Reports' },
-  ];
+const navItems = [
+  { to: '/', icon: <LayoutDashboard size={22} />, label: 'Dashboard' },
+  { to: '/patients', icon: <Users size={22} />, label: 'Pacientes' },
+  { to: '/medications', icon: <Pill size={22} />, label: 'Medicamentos' },
+  { to: '/appointments', icon: <Calendar size={22} />, label: 'Citas' },
+  { to: '/notifications', icon: <Bell size={22}/>, label: 'Notificaciones'},
+  { to: '/vitals', icon: <Activity size={22} />, label: 'Signos Vitales' },
+  { to: '/reports', icon: <FileText size={22} />, label: 'Reportes' },
+  // Puedes añadir más items aquí, por ejemplo:
+  // { to: '/settings', icon: <Settings size={22} />, label: 'Configuración' },
+];
+
+const Sidebar: React.FC<SidebarProps> = ({
+  isDesktopCollapsed,
+  setIsDesktopCollapsed,
+  isMobileOpen,
+  toggleMobileSidebar
+}) => {
+  const { signOut, currentUser, userProfile } = useAppContext();
+  const navigate = useNavigate();
 
   const handleLogout = async () => {
     try {
-      await signOut(); // Llama a la función signOut del contexto
-      navigate('/login', { replace: true }); // Redirige a /login y reemplaza la entrada actual en el historial
+      await signOut();
+      navigate('/login', { replace: true });
+      if (isMobileOpen && toggleMobileSidebar) {
+        toggleMobileSidebar(); // Cerrar sidebar móvil después del logout
+      }
     } catch (error) {
-      // El manejo de errores (toast) ya debería estar en la función signOut del AppContext
       console.error("Logout failed from Sidebar:", error);
     }
   };
+  
+  const userName = userProfile?.name || currentUser?.email?.split('@')[0] || "Usuario";
+  const userRole = userProfile?.specialty || userProfile?.role || "Rol no definido";
 
-  // No mostrar el botón de Logout si no hay usuario o la autenticación aún está cargando
-  // Esto es opcional, pero puede mejorar la UX.
-  // if (!currentUser) {
-  //   return null; // O alguna otra UI si es necesario antes de que ProtectedRoute redirija
-  // }
+
+  // Clases base para el sidebar
+  const baseSidebarClasses = `
+    fixed top-0 left-0 h-full bg-slate-800 text-slate-100 flex flex-col
+    transition-all duration-300 ease-in-out shadow-xl z-40
+  `;
+
+  // Clases para escritorio
+  const desktopSidebarClasses = `
+    hidden md:flex 
+    ${isDesktopCollapsed ? 'w-20 hover:w-64' : 'w-64'}
+  `;
+  
+  // Clases para móvil (controlado por isMobileOpen desde Layout)
+  const mobileSidebarClasses = `
+     md:hidden
+     ${isMobileOpen ? 'w-64 transform translate-x-0' : 'w-64 transform -translate-x-full'}
+  `;
+
 
   return (
-    <div
-      className={`${
-        collapsed ? 'w-16' : 'w-64'
-      } bg-indigo-900 text-white flex flex-col h-full transition-all duration-300 ease-in-out`}
+    <aside
+      className={`${baseSidebarClasses} ${desktopSidebarClasses} ${mobileSidebarClasses}`}
+      onMouseEnter={() => setIsDesktopCollapsed(false)}
+      onMouseLeave={() => setIsDesktopCollapsed(true)}
     >
-      <div className="flex items-center justify-between p-4 border-b border-indigo-800">
-        {!collapsed && (
-          <h1 className="text-xl font-bold">MediRemind</h1>
-        )}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="p-1 rounded-full hover:bg-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-600"
-        >
-          {collapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
-        </button>
+      {/* Logo y Título */}
+      <div className={`flex items-center p-4 h-16 border-b border-slate-700 ${isDesktopCollapsed && !isMobileOpen ? 'justify-center' : 'justify-between'}`}>
+        <div className={`flex items-center gap-2 ${ (isDesktopCollapsed && !isMobileOpen) ? 'md:group-hover:flex' : ''}`}>
+          <Briefcase size={isDesktopCollapsed && !isMobileOpen ? 28 : 26} className="text-indigo-400 flex-shrink-0" />
+          {(!isDesktopCollapsed || isMobileOpen) && (
+            <span className="text-xl font-semibold whitespace-nowrap">MediRemind</span>
+          )}
+        </div>
       </div>
 
-      <nav className="flex-1 py-4">
-        <ul className="space-y-1">
+      {/* Perfil del Usuario (Opcional, mejor en Header para móviles) */}
+      {(!isDesktopCollapsed || isMobileOpen) && currentUser && (
+        <div className="p-4 border-b border-slate-700">
+            <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center text-white font-semibold text-sm mb-2 mx-auto">
+                {userName.substring(0,2).toUpperCase()}
+            </div>
+            <p className="text-sm font-medium text-center truncate" title={userName}>{userName}</p>
+            <p className="text-xs text-slate-400 text-center truncate" title={userRole}>{userRole}</p>
+        </div>
+      )}
+
+
+      {/* Navegación Principal */}
+      <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
+        <ul>
           {navItems.map((item) => (
             <li key={item.to}>
               <NavLink
                 to={item.to}
+                onClick={isMobileOpen ? toggleMobileSidebar : undefined} // Cerrar en móvil al hacer clic
                 className={({ isActive }) => `
-                  flex items-center px-4 py-3 text-sm
-                  ${isActive ? 'bg-indigo-800 text-white' : 'text-indigo-100 hover:bg-indigo-800'}
-                  ${collapsed ? 'justify-center' : ''}
-                  transition-colors duration-200
+                  flex items-center py-3 text-sm transition-colors duration-200 group
+                  ${isDesktopCollapsed && !isMobileOpen ? 'px-0 justify-center w-20 h-14' : 'px-4'}
+                  ${isActive 
+                    ? 'bg-indigo-600 text-white font-medium shadow-inner' 
+                    : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                  }
                 `}
+                title={isDesktopCollapsed && !isMobileOpen ? item.label : ""} // Tooltip para modo colapsado
               >
-                <span className="flex-shrink-0">{item.icon}</span>
-                {!collapsed && <span className="ml-3">{item.label}</span>}
+                <span className={`flex-shrink-0 ${isDesktopCollapsed && !isMobileOpen ? '' : 'mr-3'}`}>
+                    {React.cloneElement(item.icon as React.ReactElement, { strokeWidth: 1.75 })}
+                </span>
+                {(!isDesktopCollapsed || isMobileOpen) && (
+                  <span className="whitespace-nowrap">{item.label}</span>
+                )}
               </NavLink>
             </li>
           ))}
         </ul>
       </nav>
 
-      {/* Solo muestra el botón de Logout si hay un usuario logueado */}
+      {/* Sección de Logout */}
       {currentUser && (
-        <div className="p-4 border-t border-indigo-800">
+        <div className={`p-4 border-t border-slate-700 ${isDesktopCollapsed && !isMobileOpen ? 'w-20' : 'w-auto'}`}>
           <button
-            onClick={handleLogout} // Asigna la función handleLogout al onClick
-            className={`w-full flex items-center text-sm text-indigo-100 hover:text-white ${collapsed ? 'justify-center' : 'px-4 py-3' /* Ajusta padding si no está colapsado */} transition-colors duration-200`}
+            onClick={handleLogout}
+            title={isDesktopCollapsed && !isMobileOpen ? "Logout" : ""}
+            className={`
+              w-full flex items-center text-sm transition-colors duration-200 group
+              ${isDesktopCollapsed && !isMobileOpen ? 'px-0 justify-center h-12' : 'px-4 py-3'}
+              text-slate-300 hover:bg-red-600 hover:text-white rounded-md
+            `}
           >
-            <LogOut size={20} />
-            {!collapsed && <span className="ml-3">Logout</span>}
+            <LogOut size={20} strokeWidth={1.75} className={`${isDesktopCollapsed && !isMobileOpen ? '' : 'mr-3'}`} />
+            {(!isDesktopCollapsed || isMobileOpen) && <span className="whitespace-nowrap">Logout</span>}
           </button>
         </div>
       )}
-    </div>
+    </aside>
   );
 };
 
