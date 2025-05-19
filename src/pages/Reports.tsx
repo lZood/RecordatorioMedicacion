@@ -1,22 +1,20 @@
 // src/pages/Reports.tsx
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../contexts/AppContext';
-import { Patient, MedicationIntakeWithMedication } from '../types';
+import { Patient, MedicationIntakeWithMedication } from '../types'; // MedicationIntakeWithMedication ya está en el servicio
 import { FileText, Download, Filter, Calendar, User as UserIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-import jsPDF from 'jspdf'; // Importar jsPDF
-import autoTable from 'jspdf-autotable'; // Importar jspdf-autotable
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
-// Interfaz para los datos procesados del reporte de adherencia (ya la tenías definida)
 interface MedicationAdherenceReportData {
   patientName: string;
   medicationName: string;
   scheduled: number;
   taken: number;
-  adherence: string; // Podría ser número para cálculos, pero string para mostrar con '%'
+  adherence: string;
 }
-
 
 interface ReportDefinition {
   id: string;
@@ -34,20 +32,19 @@ const reportTypesList: ReportDefinition[] = [
     icon: <FileText size={20} className="text-indigo-600" />,
     supportedFormats: ['CSV', 'PDF'],
   },
-  // ... (otros tipos de reporte como los tenías definidos)
   {
     id: 'vital-signs',
     title: 'Reporte de Signos Vitales',
     description: 'Resume las mediciones de signos vitales del paciente a lo largo del tiempo.',
     icon: <FileText size={20} className="text-teal-600" />,
-    supportedFormats: ['CSV', 'PDF'], // Habilitar PDF aquí también
+    supportedFormats: ['CSV', 'PDF'],
   },
   {
     id: 'appointments',
     title: 'Reporte de Citas',
     description: 'Lista todas las citas con estado y resultado.',
     icon: <FileText size={20} className="text-blue-600" />,
-    supportedFormats: ['CSV', 'PDF'], // Habilitar PDF
+    supportedFormats: ['CSV', 'PDF'],
   },
   {
     id: 'patient-summary',
@@ -61,9 +58,9 @@ const reportTypesList: ReportDefinition[] = [
 const Reports: React.FC = () => {
   const { 
     patients, 
-    medicationIntakes,
-    userProfile, // Para el nombre del doctor
-    // ... otros datos
+    medicationIntakes, // Usar el estado global de AppContext
+    userProfile,
+    loadingMedicationIntakesGlobal, // Para saber si las tomas globales están listas
   } = useAppContext();
 
   const [selectedReportType, setSelectedReportType] = useState<string>('');
@@ -72,14 +69,21 @@ const Reports: React.FC = () => {
   const [selectedPatientId, setSelectedPatientId] = useState<string>('all');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
-  // Función para procesar los datos de adherencia (reutilizable para CSV y PDF)
   const processMedicationAdherenceData = (): MedicationAdherenceReportData[] | null => {
+    // Usar directamente medicationIntakes del contexto, que ahora debería estar poblado globalmente
+    console.log("Reports.tsx - medicationIntakes from context for processing:", medicationIntakes);
+    
+    if (loadingMedicationIntakesGlobal) { // Esperar si aún están cargando
+        toast.error('Los datos de tomas de medicamentos aún se están cargando. Intente de nuevo en un momento.');
+        return null;
+    }
+
     if (!medicationIntakes || medicationIntakes.length === 0) {
-      toast.error('No hay datos de tomas de medicamentos disponibles.');
+      toast.error('No hay datos de tomas de medicamentos disponibles para procesar.');
       return null;
     }
 
-    let filteredIntakes = medicationIntakes;
+    let filteredIntakes = [...medicationIntakes]; // Crear una copia para no mutar el estado del contexto
 
     if (selectedPatientId !== 'all') {
       filteredIntakes = filteredIntakes.filter(intake => intake.patientId === selectedPatientId);
@@ -133,7 +137,6 @@ const Reports: React.FC = () => {
     return reportData;
   };
   
-  // Función para generar el CSV del reporte de adherencia
   const generateMedicationAdherenceCSV = () => {
     const processedData = processMedicationAdherenceData();
     if (!processedData) return null;
@@ -154,25 +157,21 @@ const Reports: React.FC = () => {
     return csvRows.join('\n');
   };
 
-  // Función para generar el PDF del reporte de adherencia
   const generateMedicationAdherencePDF = () => {
     const processedData = processMedicationAdherenceData();
     if (!processedData || processedData.length === 0) {
-        // processMedicationAdherenceData ya muestra un toast si no hay datos
         return null; 
     }
 
     const doc = new jsPDF();
     const pageHeight = doc.internal.pageSize.height || doc.internal.pageSize.getHeight();
     const pageWidth = doc.internal.pageSize.width || doc.internal.pageSize.getWidth();
-    let finalY = 20; // Posición Y inicial
+    let finalY = 20; 
 
-    // Título del Reporte
     doc.setFontSize(18);
     doc.text("Reporte de Adherencia a la Medicación", pageWidth / 2, finalY, { align: 'center' });
     finalY += 10;
 
-    // Información de Filtros Aplicados
     doc.setFontSize(10);
     let filterText = "Filtros aplicados: ";
     if (selectedPatientId !== 'all') {
@@ -188,7 +187,6 @@ const Reports: React.FC = () => {
     doc.text(filterText, 14, finalY);
     finalY += 8;
 
-    // Fecha de Generación y Doctor
     doc.setFontSize(8);
     doc.text(`Generado el: ${new Date().toLocaleString()}`, 14, finalY);
     if (userProfile?.name) {
@@ -196,7 +194,6 @@ const Reports: React.FC = () => {
     }
     finalY += 10;
     
-    // Definir columnas y cuerpo para autoTable
     const tableColumn = ["Paciente", "Medicamento", "Programadas", "Realizadas", "Adherencia (%)"];
     const tableRows: (string | number)[][] = [];
 
@@ -214,39 +211,35 @@ const Reports: React.FC = () => {
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: finalY, // Iniciar la tabla después del título y filtros
-      theme: 'striped', // Opciones: 'striped', 'grid', 'plain'
-      headStyles: { fillColor: [22, 160, 133] }, // Color de cabecera (ej. Teal)
+      startY: finalY,
+      theme: 'striped',
+      headStyles: { fillColor: [22, 160, 133] }, 
       margin: { top: 10 },
       didDrawPage: (data) => {
-        // Footer con número de página
-        const pageCount = doc.getNumberOfPages(); // Total de páginas
+        const pageCount = doc.getNumberOfPages();
         doc.setFontSize(8);
         doc.text(
           `Página ${data.pageNumber} de ${pageCount}`, 
           data.settings.margin.left, 
           pageHeight - 10
         );
-        finalY = data.cursor?.y ?? 20; // Actualizar finalY para contenido después de la tabla si es necesario
+        finalY = data.cursor?.y ?? 20;
       }
     });
     
-    finalY = (doc as any).lastAutoTable.finalY || finalY; // Obtener la posición Y después de la tabla
+    finalY = (doc as any).lastAutoTable.finalY || finalY;
 
-    // Ejemplo: Añadir un pequeño resumen o notas al final
     finalY += 10;
-    if (finalY > pageHeight - 20) { // Añadir nueva página si no hay espacio
+    if (finalY > pageHeight - 20) {
         doc.addPage();
         finalY = 20;
     }
     doc.setFontSize(10);
     doc.text("Notas: La adherencia se calcula como (Tomas Realizadas / Tomas Programadas) * 100.", 14, finalY);
 
-    return doc; // Devolvemos el objeto jsPDF
+    return doc;
   };
 
-
-  // Función genérica para descargar archivos
   const downloadFile = (content: string, fileName: string, contentType: string) => {
     const blob = new Blob([content], { type: contentType });
     const link = document.createElement('a');
@@ -263,7 +256,7 @@ const Reports: React.FC = () => {
       toast.error('Por favor, seleccione un tipo de reporte.');
       return;
     }
-    setIsGenerating(true); // Iniciar indicador de carga
+    setIsGenerating(true);
 
     let fileName = `${selectedReportType}_${new Date().toISOString().split('T')[0]}`;
 
@@ -280,7 +273,7 @@ const Reports: React.FC = () => {
             const pdfDoc = generateMedicationAdherencePDF();
             if (pdfDoc) {
               fileName += '.pdf';
-              pdfDoc.save(fileName); // jsPDF maneja la descarga
+              pdfDoc.save(fileName);
               toast.success(`Reporte ${fileName} descargado.`);
             }
           }
@@ -291,14 +284,13 @@ const Reports: React.FC = () => {
         console.error("Error generando el reporte:", error);
         toast.error("Ocurrió un error al generar el reporte.");
     } finally {
-        setIsGenerating(false); // Detener indicador de carga
+        setIsGenerating(false);
     }
   };
   
   const selectedReportDefinition = useMemo(() => {
     return reportTypesList.find(rt => rt.id === selectedReportType);
   }, [selectedReportType]);
-
 
   return (
     <div className="space-y-6">
@@ -388,7 +380,12 @@ const Reports: React.FC = () => {
         </div>
         
         <div className="p-6">
-          {selectedReportType && selectedReportDefinition ? (
+          {loadingMedicationIntakesGlobal && selectedReportType === 'medication-adherence' && (
+            <p className="text-gray-500 text-center py-8 animate-pulse">
+                Cargando datos de adherencia...
+            </p>
+          )}
+          {!loadingMedicationIntakesGlobal && selectedReportType && selectedReportDefinition ? (
             <div className="border border-gray-200 rounded-lg p-4 bg-indigo-50">
               <div className="flex items-start">
                 <div className="p-2 bg-indigo-100 rounded-full mr-4 mt-1">
@@ -403,7 +400,7 @@ const Reports: React.FC = () => {
                     {selectedReportDefinition.supportedFormats.includes('CSV') && (
                       <button 
                         onClick={() => handleDownload('CSV')}
-                        disabled={isGenerating}
+                        disabled={isGenerating || (selectedReportType === 'medication-adherence' && loadingMedicationIntakesGlobal)}
                         className="flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 px-3 py-1.5 border border-indigo-500 rounded-md hover:bg-indigo-100"
                       >
                         <Download size={16} />
@@ -413,7 +410,7 @@ const Reports: React.FC = () => {
                     {selectedReportDefinition.supportedFormats.includes('PDF') && (
                        <button 
                         onClick={() => handleDownload('PDF')}
-                        disabled={isGenerating}
+                        disabled={isGenerating || (selectedReportType === 'medication-adherence' && loadingMedicationIntakesGlobal)}
                         className="flex items-center gap-1 text-sm text-purple-600 hover:text-purple-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 px-3 py-1.5 border border-purple-500 rounded-md hover:bg-purple-100"
                       >
                         <Download size={16} />
@@ -426,6 +423,7 @@ const Reports: React.FC = () => {
               </div>
             </div>
           ) : (
+            !selectedReportType && 
             <p className="text-gray-500 text-center py-8">
               Seleccione un tipo de reporte de la sección de filtros para ver las opciones de descarga.
             </p>
@@ -433,7 +431,6 @@ const Reports: React.FC = () => {
         </div>
       </div>
       
-      {/* Recent Reports (Placeholder) */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-medium text-gray-800">Reportes Generados Recientemente</h2>
@@ -447,3 +444,4 @@ const Reports: React.FC = () => {
 };
 
 export default Reports;
+
