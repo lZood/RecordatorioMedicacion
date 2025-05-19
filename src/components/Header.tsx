@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Bell, Search, User as UserIcon, Menu } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
-import { Link } from 'react-router-dom'; // Asegúrate que esta línea de importación esté presente y sea correcta.
+import { Link } from 'react-router-dom'; // <--- ASEGÚRATE DE QUE ESTA LÍNEA ESTÉ EXACTAMENTE ASÍ
 
 interface HeaderProps {
   toggleMobileMenu: () => void;
@@ -77,7 +77,6 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileMenu }) => {
           {showNotificationsDropdown && (
             <div 
               className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-md shadow-xl z-20 border border-gray-200"
-              // onMouseLeave={() => setShowNotificationsDropdown(false)} // Podría ser molesto, mejor cerrar al hacer clic fuera o en un ítem
             >
               <div className="p-3 border-b border-gray-200 flex justify-between items-center">
                 <h3 className="text-sm font-semibold text-gray-700">Notificaciones</h3>
@@ -90,7 +89,6 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileMenu }) => {
                       <div className={`p-3 hover:bg-gray-50 cursor-pointer ${notification.status === 'pending' || notification.status === 'sent' ? 'bg-indigo-50' : ''}`}
                            onClick={() => {
                              handleMarkAsRead(notification.id);
-                             // Opcional: navegar
                            }}
                       >
                         <p className="text-xs text-gray-500 mb-0.5">
@@ -136,17 +134,8 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileMenu }) => {
                 </p>
               </div>
             )}
-            {/* Considera añadir un estado de carga específico para el perfil si es necesario aquí */}
-            {/* Ejemplo: */}
-            {/* {isLoadingInfo && (
-              <div className="hidden md:block">
-                <div className="h-4 bg-gray-200 rounded w-24 mb-1 animate-pulse"></div>
-                <div className="h-3 bg-gray-200 rounded w-16 animate-pulse"></div>
-              </div>
-            )} */}
           </div>
         ) : (
-          // Placeholder si no hay usuario (aunque ProtectedRoute debería prevenir esto)
           <div className="w-9 h-9 bg-gray-300 rounded-full flex items-center justify-center">
             <UserIcon size={18} className="text-gray-600"/>
           </div>
