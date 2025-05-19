@@ -1,9 +1,8 @@
 // src/components/Header.tsx
 import React, { useState } from 'react';
-import { Bell, Search, User as UserIcon, Menu } from 'lucide-react'; // Añadido Menu
+import { Bell, Search, User as UserIcon, Menu } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
-import { Link } from 'react-router-dom';
-// useNavigate y toast no son necesarios aquí si el logout se maneja en Sidebar
+import { Link } from 'react-router-dom'; // Asegúrate que esta línea de importación esté presente y sea correcta.
 
 interface HeaderProps {
   toggleMobileMenu: () => void;
@@ -137,9 +136,17 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileMenu }) => {
                 </p>
               </div>
             )}
-            {/* ... (estados de carga para perfil como los tenías) ... */}
+            {/* Considera añadir un estado de carga específico para el perfil si es necesario aquí */}
+            {/* Ejemplo: */}
+            {/* {isLoadingInfo && (
+              <div className="hidden md:block">
+                <div className="h-4 bg-gray-200 rounded w-24 mb-1 animate-pulse"></div>
+                <div className="h-3 bg-gray-200 rounded w-16 animate-pulse"></div>
+              </div>
+            )} */}
           </div>
         ) : (
+          // Placeholder si no hay usuario (aunque ProtectedRoute debería prevenir esto)
           <div className="w-9 h-9 bg-gray-300 rounded-full flex items-center justify-center">
             <UserIcon size={18} className="text-gray-600"/>
           </div>
