@@ -1,20 +1,20 @@
 // src/contexts/AppContext.tsx
 import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 import { Patient, Medication, Appointment, VitalSign, MedicationIntake, UserProfile, Notification } from '../types';
-import { MedicationIntakeWithMedication } from '../services/medicationIntakes';
-import { User } from '@supabase/supabase-js'; // Subscription no se usa directamente aquí
+import { MedicationIntakeWithMedication, medicationIntakeService } from '../services/medicationIntakes'; // Importar el servicio completo
+import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { patientService } from '../services/patients';
 import { medicationService } from '../services/medications';
 import { appointmentService } from '../services/appointments';
 import { vitalSignService } from '../services/vitalSigns';
-import { medicationIntakeService } from '../services/medicationIntakes';
+// medicationIntakeService ya está importado arriba
 import { profileService } from '../services/profiles';
 import { notificationService } from '../services/notificationService';
 import toast from 'react-hot-toast';
 import { authService } from '../services/auth';
 
-// Helper function (si la tienes, asegúrate que esté definida)
+// Helper function
 const isAbnormalVitalSign = (vitalSign: VitalSign): { abnormal: boolean; reason: string } => {
   const { type, value } = vitalSign;
   if (type.toLowerCase().includes('presión arterial sistólica') || type.toLowerCase().includes('systolic blood pressure')) {
@@ -64,12 +64,12 @@ interface AppContextType {
   deleteVitalSign: (id: string) => Promise<void>;
   fetchVitalSignsForPatient: (patientId: string) => Promise<VitalSign[]>;
   
-  medicationIntakes: MedicationIntakeWithMedication[];
-  loadingMedicationIntakes: boolean;
+  medicationIntakes: MedicationIntakeWithMedication[]; // Este será el estado global para todas las tomas
+  loadingMedicationIntakesGlobal: boolean; // Nuevo estado de carga para las tomas globales
   addMedicationIntake: (intakeData: Omit<MedicationIntake, 'id' | 'createdAt' | 'updatedAt'>) => Promise<MedicationIntakeWithMedication | undefined>;
   updateMedicationIntake: (id: string, intakeUpdateData: Partial<Omit<MedicationIntake, 'id' | 'patientId' | 'medicationId' | 'createdAt' | 'updatedAt'>>) => Promise<MedicationIntakeWithMedication | undefined>;
   deleteMedicationIntake: (id: string) => Promise<void>;
-  fetchMedicationIntakesForPatient: (patientId: string) => Promise<MedicationIntakeWithMedication[]>;
+  fetchMedicationIntakesForPatient: (patientId: string) => Promise<MedicationIntakeWithMedication[]>; // Para carga específica en PatientDetails
 
   notifications: Notification[];
   loadingNotifications: boolean;
@@ -87,7 +87,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
-  const [loadingData, setLoadingData] = useState(true); // Indica carga general de datos
+  const [loadingData, setLoadingData] = useState(true);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -95,19 +95,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<UserProfile[]>([]);
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
-  const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntakeWithMedication[]>([]); // No se usa para carga global, sino específica de paciente
+  const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntakeWithMedication[]>([]); // Estado global
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [loadingMedications, setLoadingMedications] = useState(true);
   const [loadingDoctors, setLoadingDoctors] = useState(true);
   const [loadingVitalSigns, setLoadingVitalSigns] = useState(true);
-  const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(true); // Carga específica de tomas
+  const [loadingMedicationIntakesGlobal, setLoadingMedicationIntakesGlobal] = useState(true); // Carga global
+  const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(true); // Para carga específica de paciente (PatientDetails)
   const [loadingNotifications, setLoadingNotifications] = useState(true);
-
-  // Estado para controlar si las comprobaciones de notificaciones automáticas ya se ejecutaron
   const [notificationChecksDone, setNotificationChecksDone] = useState(false);
-
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     if (!userId) { 
@@ -115,59 +113,49 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setLoadingProfile(false); 
       return null; 
     }
-    setLoadingProfile(true); // Iniciar carga de perfil
+    setLoadingProfile(true);
     try {
-      console.log("AppContext: fetchUserProfile - Calling profileService.getProfileByUserId for userId:", userId);
       const profile = await profileService.getProfileByUserId(userId);
-      console.log("AppContext: fetchUserProfile - Profile fetched:", profile);
       setUserProfile(profile); 
       return profile;
     } catch (error) { 
-      console.error("AppContext: fetchUserProfile - Error fetching user profile:", error); 
+      console.error("AppContext: Error fetching user profile:", error); 
       setUserProfile(null); 
       return null;
     } finally { 
-      setLoadingProfile(false); // Finalizar carga de perfil
+      setLoadingProfile(false);
     }
   }, []);
 
   const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
     if (!currentUser) {
-        // No lanzar error aquí directamente si es para notificaciones de fondo
         console.warn("AppContext.addNotification: Not authenticated. Cannot create notification.");
         return undefined;
     }
-    
     const dataToCreate = {
       ...notificationData,
       patientId: notificationData.patientId === undefined ? null : notificationData.patientId,
-      // Asignar doctorId si el usuario actual es un doctor y no se proporcionó un doctorId
       doctorId: notificationData.doctorId !== undefined 
                   ? notificationData.doctorId 
                   : (userProfile?.role === 'doctor' ? currentUser.id : undefined),
     };
-
     try {
-      console.log(`AppContext.addNotification: Attempting to create notification of type: ${dataToCreate.type}`, dataToCreate);
       const newNotification = await notificationService.create(dataToCreate as Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>);
       if (newNotification) {
         setNotifications(prev => {
-          // Evitar duplicados si la notificación ya existe (poco probable con UUIDs pero seguro)
           if (prev.some(n => n.id === newNotification.id)) return prev;
           return [newNotification, ...prev].sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
         });
-        // No mostrar toast para notificaciones automáticas para no molestar al usuario
         if (dataToCreate.type !== 'appointment_reminder_24h' && 
             dataToCreate.type !== 'abnormal_vital_sign' &&
             dataToCreate.type !== 'medication_expiring_soon_stock' &&
-            dataToCreate.type !== 'low_medication_adherence') { // Añadir otros tipos automáticos aquí
+            dataToCreate.type !== 'low_medication_adherence') {
             toast.success(`Notificación "${newNotification.type}" guardada.`);
         }
         return newNotification;
       }
     } catch (error: any) { 
       console.error(`AppContext.addNotification: Error creating notification of type ${dataToCreate.type}:`, error);
-      // Solo mostrar toast para errores de notificaciones iniciadas por el usuario, no las automáticas.
       if (dataToCreate.type !== 'appointment_reminder_24h' && 
           dataToCreate.type !== 'abnormal_vital_sign' &&
           dataToCreate.type !== 'medication_expiring_soon_stock' &&
@@ -176,8 +164,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
     return undefined;
-  }, [currentUser, userProfile]); // userProfile es dependencia por si se usa para doctorId
-
+  }, [currentUser, userProfile]);
 
   const updateAppointmentFlag = useCallback(async (appointmentId: string, flagUpdates: Partial<Pick<Appointment, 'notificacion_recordatorio_24h_enviada'>>) => {
     try {
@@ -188,7 +175,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (error) {
         console.error(`AppContext: Error actualizando flag de notificación para cita ${appointmentId}:`, error);
     }
-  }, []); // Sin dependencias si appointmentService es estable y no usa estado del contexto
+  }, []);
 
   const updateMedicationFlag = useCallback(async (medicationId: string, flagUpdates: Partial<Pick<Medication, 'notificacion_stock_expirando_enviada'>>) => {
     try {
@@ -199,7 +186,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (error) {
         console.error(`AppContext: Error actualizando flag de notificación para medicamento ${medicationId}:`, error);
     }
-  }, []); // Sin dependencias si medicationService es estable
+  }, []);
 
   const generateUpcomingAppointmentReminders = useCallback(async (
     apptsToCheck: Appointment[],
@@ -207,11 +194,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     currentDoctorProfile: UserProfile | null
   ) => {
     if (currentDoctorProfile?.role !== 'doctor' || !apptsToCheck.length || !allPatients.length) return;
-    console.log("AppContext: Checking for upcoming appointment reminders...");
-
     const now = new Date();
     const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
     for (const appt of apptsToCheck) {
       if (appt.status === 'scheduled' && !appt.notificacion_recordatorio_24h_enviada) {
         const appointmentDateTime = new Date(`${appt.date}T${appt.time}`);
@@ -225,7 +209,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               sendAt: new Date(appointmentDateTime.getTime() - 24 * 60 * 60 * 1000).toISOString(),
             };
             try { 
-              console.log("AppContext: Generating 24h reminder for appointment:", appt.id);
               await addNotification(reminderData);
               await updateAppointmentFlag(appt.id, { notificacion_recordatorio_24h_enviada: true });
             } catch (e) { console.error("AppContext: Error in generateUpcomingAppointmentReminders for appt:", appt.id, e); }
@@ -237,30 +220,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const checkExpiringMedicationsStock = useCallback(async (
     medsToCheck: Medication[],
-    authUserId: string | undefined, // Puede ser undefined si currentUser es null
+    authUserId: string | undefined,
     currentDoctorProfile: UserProfile | null
   ) => {
     if (currentDoctorProfile?.role !== 'doctor' || !medsToCheck.length || !authUserId) return;
-    console.log("AppContext: Checking for expiring medication stock...");
-    
     const today = new Date();
     const thirtyDaysLater = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
-
     for (const med of medsToCheck) {
         if (med.doctorId !== authUserId) continue;
         if (med.notificacion_stock_expirando_enviada) continue; 
-
         const expirationDate = new Date(med.expirationDate);
         if (expirationDate > today && expirationDate <= thirtyDaysLater) {
             const medExpirationDateString = new Date(med.expirationDate + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES');
             const message = `Alerta de inventario: Su medicamento "${med.name}" (Principio Activo: ${med.activeIngredient}) vence el ${medExpirationDateString}.`;
-            
             const notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
                 patientId: null, doctorId: authUserId, message: message,
                 type: 'medication_expiring_soon_stock', status: 'pending',
             };
             try { 
-              console.log("AppContext: Generating expiring stock notification for med:", med.id);
               await addNotification(notificationData);
               await updateMedicationFlag(med.id, { notificacion_stock_expirando_enviada: true });
             } catch (e) { console.error("AppContext: Error in checkExpiringMedicationsStock for med:", med.id, e); }
@@ -268,47 +245,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [addNotification, updateMedicationFlag]);
 
-
   const internalLoadInitialData = useCallback(async (authUser: User | null) => {
     if (!authUser) {
-      console.log("AppContext: internalLoadInitialData - No authUser, clearing data.");
       setUserProfile(null);
       setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
       setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
       setLoadingData(false); setLoadingAppointments(false); setLoadingMedications(false); 
-      setLoadingDoctors(false); setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); 
+      setLoadingDoctors(false); setLoadingVitalSigns(false); 
+      setLoadingMedicationIntakesGlobal(false); // Limpiar carga global
+      setLoadingMedicationIntakes(false); // Limpiar carga específica
       setLoadingNotifications(false); setLoadingProfile(false);
-      setNotificationChecksDone(false); // Resetear para la próxima carga de datos
+      setNotificationChecksDone(false);
       return;
     }
     
-    console.log("AppContext: internalLoadInitialData - Starting data load for user:", authUser.id);
     setLoadingData(true); setLoadingAppointments(true); setLoadingMedications(true);
-    setLoadingDoctors(true); setLoadingVitalSigns(true); setLoadingMedicationIntakes(true); 
+    setLoadingDoctors(true); setLoadingVitalSigns(true); 
+    setLoadingMedicationIntakesGlobal(true); // Iniciar carga global de tomas
     setLoadingNotifications(true); 
-    // setLoadingProfile se maneja en fetchUserProfile
-    setNotificationChecksDone(false); // Resetear para que las comprobaciones se ejecuten después de esta carga
+    setNotificationChecksDone(false);
 
-    const fetchedProfile = await fetchUserProfile(authUser.id); // Esto ya setea userProfile y loadingProfile
+    const fetchedProfile = await fetchUserProfile(authUser.id);
 
     try {
-      // Solo cargar datos si el perfil es de doctor
       if (fetchedProfile?.role === 'doctor') {
-        console.log("AppContext: internalLoadInitialData - Doctor profile found. Fetching doctor-specific data.");
         const [
           resolvedDoctorsData, 
           resolvedNotificationsData, 
           patientsData, 
           medicationsData, 
           appointmentsData, 
-          vitalSignsData
+          vitalSignsData,
+          allMedicationIntakesData // Cargar todas las tomas aquí
         ] = await Promise.all([
           profileService.getAllDoctors().catch(e => { console.error("Error fetching all doctors:", e); return []; }),
           notificationService.getAll().catch(e => { console.error("Error fetching all notifications:", e); return []; }),
           patientService.getAll().catch(e => { console.error("Error fetching patients:", e); return []; }),
           medicationService.getAll().catch(e => { console.error("Error fetching medications:", e); return []; }),
           appointmentService.getAll().catch(e => { console.error("Error fetching appointments:", e); return []; }),
-          vitalSignService.getAll().catch(e => { console.error("Error fetching vital signs:", e); return []; })
+          vitalSignService.getAll().catch(e => { console.error("Error fetching vital signs:", e); return []; }),
+          medicationIntakeService.getAllIntakes().catch(e => { console.error("Error fetching all medication intakes:", e); return []; }) // NUEVA LLAMADA
         ]);
 
         setDoctors(resolvedDoctorsData || []);
@@ -317,142 +293,97 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setMedications(medicationsData || []);
         setAppointments(appointmentsData || []);
         setVitalSigns(vitalSignsData || []);
-        setMedicationIntakes([]); // Se cargan on-demand en PatientDetails
+        setMedicationIntakes(allMedicationIntakesData || []); // Establecer el estado global de tomas
       } else {
-        console.log("AppContext: internalLoadInitialData - Profile is not doctor or not found. Clearing doctor-specific data.");
-        // Si no es doctor o no hay perfil, limpiar los datos específicos del doctor
         setPatients([]); setMedications([]); setAppointments([]);
         setVitalSigns([]); setMedicationIntakes([]); 
-        // Doctores y Notificaciones (generales) podrían seguir siendo relevantes o limpiarse según la lógica
-        setDoctors([]); // O mantener los doctores si son datos públicos
-        setNotifications([]); // O filtrar notificaciones si algunas son generales
+        setDoctors([]); 
+        setNotifications([]);
       }
     } catch (error) {
-      console.error("AppContext: internalLoadInitialData - Error loading initial data sets:", error);
+      console.error("AppContext: Error loading initial data sets:", error);
       toast.error("No se pudieron cargar los datos de la aplicación.");
-      // Limpiar estados en caso de error mayor para evitar datos inconsistentes
       setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
       setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
     } finally {
-      console.log("AppContext: internalLoadInitialData - Finished data load attempt.");
       setLoadingData(false); setLoadingAppointments(false); setLoadingMedications(false);
-      setLoadingDoctors(false); setLoadingVitalSigns(false); setLoadingMedicationIntakes(false); 
+      setLoadingDoctors(false); setLoadingVitalSigns(false); 
+      setLoadingMedicationIntakesGlobal(false); // Finalizar carga global de tomas
+      // setLoadingMedicationIntakes(false); // La carga específica se maneja en su propia función
       setLoadingNotifications(false);
-      // setLoadingProfile ya está en false por fetchUserProfile
-      setNotificationChecksDone(true); // Marcar que la carga de datos (y por ende las comprobaciones) pueden proceder
+      setNotificationChecksDone(true);
     }
-  }, [fetchUserProfile]); // fetchUserProfile es una dependencia estable de useCallback
+  }, [fetchUserProfile]); 
   
-
-  // Efecto para onAuthStateChange
   useEffect(() => {
-    console.log("AppContext: Setting up onAuthStateChange listener.");
-    setLoadingAuth(true); // Indicar que estamos en proceso de verificar la autenticación inicial
-
+    setLoadingAuth(true);
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        console.log("AppContext: onAuthStateChange triggered. Event:", _event, "Session:", !!session);
         const user = session?.user ?? null;
         const previousUserId = currentUser?.id;
-        
-        setCurrentUser(user); // Actualizar currentUser inmediatamente
-
+        setCurrentUser(user); 
         if (user?.id !== previousUserId || (!user && previousUserId)) {
-            console.log(`AppContext: onAuthStateChange - User state changed (from ${previousUserId} to ${user?.id}). Reloading data.`);
             await internalLoadInitialData(user);
-        } else {
-            console.log("AppContext: onAuthStateChange - User state did not change relevantly for data reload.");
         }
-        setLoadingAuth(false); // Terminar estado de carga de autenticación
+        setLoadingAuth(false);
       }
     );
-
-    // Verificación inicial de la sesión al montar el componente
     (async () => {
-      console.log("AppContext: Performing initial session check.");
-      const { data: { session }, error } = await supabase.auth.getSession();
-      if (error) {
-        console.error("AppContext: Error getting initial session:", error);
+      if (loadingAuth) { 
+          const { data: { session } } = await supabase.auth.getSession();
+          const user = session?.user ?? null;
+          if (user?.id !== currentUser?.id || (!user && currentUser) || (user && !currentUser)) {
+              setCurrentUser(user);
+              await internalLoadInitialData(user);
+          }
+          setLoadingAuth(false); 
       }
-      console.log("AppContext: Initial session check result:", !!session);
-      const user = session?.user ?? null;
-
-      // Solo llamar a setCurrentUser y internalLoadInitialData si el usuario es diferente al actual
-      // o si es la primera vez (currentUser es null).
-      if (user?.id !== currentUser?.id || (!user && currentUser) || (user && !currentUser)) {
-        setCurrentUser(user);
-        await internalLoadInitialData(user);
-      }
-      setLoadingAuth(false); // Terminar estado de carga de autenticación después de la verificación inicial
     })();
-
     return () => {
-      console.log("AppContext: Unsubscribing from onAuthStateChange.");
       subscription?.unsubscribe();
     };
-  // Las dependencias deben ser estables.
-  // `internalLoadInitialData` es un useCallback. `currentUser` causa que este efecto se re-ejecute si cambia,
-  // lo cual es correcto para manejar cambios de sesión.
-  }, [internalLoadInitialData]); // currentUser fue quitado para evitar re-ejecución si sólo cambia currentUser sin cambiar la sesión real
+  }, [internalLoadInitialData]);
 
-  // Efecto para ejecutar las comprobaciones de notificaciones DESPUÉS de que todo haya cargado
   useEffect(() => {
-    // Solo ejecutar si todas las cargas de datos principales han terminado Y
-    // el usuario está autenticado y tiene un perfil de doctor.
     const allDataLoadedAndUserReady = 
-        !loadingData && 
-        !loadingAppointments && 
-        !loadingMedications && 
-        !loadingNotifications && 
-        !loadingProfile && 
-        !loadingVitalSigns && 
-        !loadingDoctors &&
-        !loadingAuth && // Asegurarse que la autenticación haya terminado
+        !loadingData && !loadingAppointments && !loadingMedications && 
+        !loadingNotifications && !loadingProfile && !loadingVitalSigns && 
+        !loadingDoctors && !loadingMedicationIntakesGlobal && // Añadir la carga global de tomas
+        !loadingAuth && 
         currentUser && 
         userProfile?.role === 'doctor' &&
-        notificationChecksDone; // Asegurarse que internalLoadInitialData haya completado su ciclo.
+        notificationChecksDone;
 
     if (allDataLoadedAndUserReady) {
-      console.log("AppContext: All data loaded and user is ready. Running notification checks.");
-      
-      // Para evitar bucles, estas funciones idealmente no deberían causar cambios en las dependencias
-      // de *este* useEffect de una manera que lo haga re-ejecutar indefinidamente.
-      // Pasamos copias de los arrays para que las funciones operen sobre la "foto" actual.
       const currentAppointmentsCopy = [...appointments];
       const currentMedicationsCopy = [...medications];
       const currentPatientsCopy = [...patients];
-
       const runChecks = async () => {
-        // Doble verificación por si userProfile o currentUser cambian durante el async
         if (userProfile?.role === 'doctor' && currentUser) {
           await generateUpcomingAppointmentReminders(currentAppointmentsCopy, currentPatientsCopy, userProfile);
           await checkExpiringMedicationsStock(currentMedicationsCopy, currentUser.id, userProfile);
         }
       };
-      
       runChecks();
-      // Considera si necesitas resetear `notificationChecksDone` en algún punto si estas comprobaciones
-      // deben volver a ejecutarse bajo ciertas condiciones (ej. después de un nuevo login).
-      // Por ahora, se resetea en internalLoadInitialData cuando no hay authUser.
     }
   }, [
-    // Dependencias que indican que los datos y el estado de autenticación están listos:
     currentUser, userProfile, 
     loadingAuth, loadingData, loadingAppointments, loadingMedications, 
     loadingNotifications, loadingProfile, loadingVitalSigns, loadingDoctors,
-    notificationChecksDone, // Nueva bandera
-    // Los arrays de datos principales, si cambian, podrían justificar una nueva comprobación
-    // pero hay que tener cuidado con los bucles si las funciones de comprobación los modifican.
+    loadingMedicationIntakesGlobal, // Añadir dependencia
+    notificationChecksDone,
     appointments, medications, patients, 
-    // Funciones callback (estables):
     generateUpcomingAppointmentReminders, checkExpiringMedicationsStock
   ]);
 
-
   // --- Definiciones de funciones CRUD (addPatient, updatePatient, etc.) ---
-  // Estas funciones deben ser useCallback y tener sus dependencias correctas.
-  // Ejemplo para addPatient (las otras seguirían un patrón similar):
-  const addPatient = useCallback(async (patientData: Omit<Patient, 'id' | 'createdAt' | 'doctorId'>): Promise<Patient | undefined> => {
+  // (Mantener las funciones CRUD como las tenías, asegurando que usen useCallback y dependencias correctas)
+  // ... (código de addPatient, updatePatient, deletePatient, getPatientById) ...
+  // ... (código de addMedication, updateMedication, deleteMedication, getMedicationById) ...
+  // ... (código de addAppointment, updateAppointment, deleteAppointment, getAppointmentById) ...
+  // ... (código de addVitalSign, updateVitalSign, deleteVitalSign) ...
+
+    const addPatient = useCallback(async (patientData: Omit<Patient, 'id' | 'createdAt' | 'doctorId'>): Promise<Patient | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { 
       toast.error("Solo los doctores pueden añadir pacientes."); 
       throw new Error("User not authorized or not a doctor."); 
@@ -523,7 +454,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         doctorId: currentUser.id,
         notificacion_stock_expirando_enviada: false 
       };
-      // Asegurar que el tipo coincida con lo que espera medicationService.create
       const newMed = await medicationService.create(medicationDataWithDoctorId as Omit<Medication, 'id' | 'createdAt' | 'updatedAt' | 'notificacion_stock_expirando_enviada'>);
       if (newMed) { 
         setMedications(prev => [...prev, newMed].sort((a,b) => a.name.localeCompare(b.name))); 
@@ -580,7 +510,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     const dataWithCorrectDoctor: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'> = { 
         ...appointmentData, 
-        doctorId: currentUser.id, // Asignar el doctorId del usuario actual
+        doctorId: currentUser.id, 
     };
     try {
       const newAppointment = await appointmentService.create(dataWithCorrectDoctor as Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'>);
@@ -747,7 +677,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toast.error("Autenticación requerida/Rol de doctor necesario"); 
       throw new Error("Not authorized."); 
     }
-    setLoadingVitalSigns(true);
+    setLoadingVitalSigns(true); // Este es el estado de carga para la página de signos vitales, no el global
     try {
         const data = await vitalSignService.getByPatient(patientId);
         return data;
@@ -766,9 +696,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const newIntake = await medicationIntakeService.create(intakeData);
       if (newIntake) {
-        // No actualizamos el estado global `medicationIntakes` aquí, ya que se maneja por paciente
+        // Actualizar el estado global si es necesario o manejarlo localmente en la página que llama
+        setMedicationIntakes(prev => [newIntake, ...prev].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time)));
         toast.success('Toma de medicamento registrada!');
-        return newIntake; // Devolver para actualizar localmente en la página del paciente
+        return newIntake;
       }
     } catch (error: any) { 
       toast.error(`Error al añadir toma: ${error.message || 'Error desconocido'}`); 
@@ -785,8 +716,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const updatedIntake = await medicationIntakeService.update(id, intakeUpdateData);
       if (updatedIntake) {
+        setMedicationIntakes(prev => prev.map(i => i.id === id ? updatedIntake : i).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time)));
         toast.success('Toma de medicamento actualizada!');
-        return updatedIntake; // Devolver para actualizar localmente
+        return updatedIntake;
       }
     } catch (error: any) { 
       toast.error(`Error al actualizar toma: ${error.message || 'Error desconocido'}`); 
@@ -802,8 +734,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     try {
       await medicationIntakeService.delete(id);
+      setMedicationIntakes(prev => prev.filter(i => i.id !== id));
       toast.success('Toma de medicamento eliminada!');
-      // La actualización local se maneja en la página del paciente
     } catch (error: any) { 
       toast.error(`Error al eliminar toma: ${error.message || 'Error desconocido'}`); 
       throw error; 
@@ -815,9 +747,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toast.error("Autenticación requerida/Rol de doctor necesario"); 
       throw new Error("Not authorized."); 
     }
-    setLoadingMedicationIntakes(true); // Este estado es para la carga específica en PatientDetails
+    setLoadingMedicationIntakes(true); // Para PatientDetails, usa este estado de carga específico
     try {
       const data = await medicationIntakeService.getByPatient(patientId);
+      // No actualizamos el estado global aquí, PatientDetails lo hará con el resultado.
       return data;
     } catch (error: any) { 
       toast.error(`Error al obtener tomas: ${error.message || 'Error desconocido'}`); 
@@ -831,7 +764,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toast.error("Autenticación requerida/Rol de doctor necesario"); 
       throw new Error("Not authorized."); 
     }
-    setLoadingNotifications(true); // Indica carga de notificaciones para un paciente
+    // setLoadingNotifications(true); // El estado global de notificaciones se carga en internalLoadInitialData
     try {
       const data = await notificationService.getByPatient(patientId);
       return data;
@@ -839,7 +772,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toast.error(`Error al obtener notificaciones: ${error.message || 'Error desconocido'}`); 
       throw error; 
     }
-    finally { setLoadingNotifications(false); }
+    // finally { setLoadingNotifications(false); }
   }, [currentUser, userProfile]);
 
   const updateNotificationStatus = useCallback(async (notificationId: string, status: Notification['status']): Promise<Notification | undefined> => {
@@ -862,26 +795,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return undefined;
   }, [currentUser, userProfile]);
 
-
   const signOut = useCallback(async () => {
-    console.log("AppContext: signOut called");
     toast.loading('Cerrando sesión...', { id: 'signout-toast' });
     try {
       const { error } = await authService.signOut();
       if (error) throw error;
-      // setCurrentUser(null); // onAuthStateChange debería encargarse de esto
-      // setUserProfile(null);
-      // // Limpiar otros estados también
-      // setPatients([]);
-      // setMedications([]);
-      // setAppointments([]);
-      // setDoctors([]);
-      // setVitalSigns([]);
-      // setNotifications([]);
-      // setNotificationChecksDone(false);
+      // Los estados se limpiarán en internalLoadInitialData(null) vía onAuthStateChange
       toast.dismiss('signout-toast');
       toast.success('Sesión cerrada exitosamente!');
-      // La navegación se maneja en Sidebar o donde se llame a signOut
     } catch (error: any) {
       toast.dismiss('signout-toast');
       console.error("AppContext: Sign out error:", error);
@@ -899,7 +820,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addAppointment: addAppointmentCb, updateAppointment: updateAppointmentCb, 
     deleteAppointment: deleteAppointmentCb, getAppointmentById,
     vitalSigns, loadingVitalSigns, addVitalSign, updateVitalSign, deleteVitalSign, fetchVitalSignsForPatient,
-    medicationIntakes, loadingMedicationIntakes, addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, fetchMedicationIntakesForPatient,
+    medicationIntakes, // Estado global para todas las tomas
+    loadingMedicationIntakesGlobal, // Carga global
+    addMedicationIntake, updateMedicationIntake, deleteMedicationIntake, 
+    fetchMedicationIntakesForPatient, // Carga específica
     notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, updateNotificationStatus,
     signOut,
     loadInitialData: internalLoadInitialData,
