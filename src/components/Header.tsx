@@ -1,21 +1,19 @@
 // src/components/Header.tsx
 import React, { useState } from 'react';
-import { Bell, Search, User as UserIcon, Menu } from 'lucide-react';
+import { Bell, Search, User as UserIcon, ChevronDown } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
-import { Link } from 'react-router-dom'; // <--- ASEGÚRATE DE QUE ESTA LÍNEA ESTÉ EXACTAMENTE ASÍ
+import { Link, useNavigate } from 'react-router-dom'; // Importar useNavigate
+import toast from 'react-hot-toast'; // Importar toast
 
-interface HeaderProps {
-  toggleMobileMenu: () => void;
-}
-
-const Header: React.FC<HeaderProps> = ({ toggleMobileMenu }) => {
+const Header: React.FC = () => {
   const { currentUser, userProfile, loadingProfile, loadingAuth, notifications, updateNotificationStatus } = useAppContext();
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
+  const navigate = useNavigate(); // Hook para navegación
 
   const isLoadingInfo = loadingAuth || (currentUser && loadingProfile);
 
   const displayName = userProfile?.name || currentUser?.user_metadata?.name || "Doctor";
-  const displaySpecialtyOrRole = userProfile?.specialty || (userProfile?.role ? `${userProfile.role.charAt(0).toUpperCase() + userProfile.role.slice(1)}` : "Especialista");
+  const displaySpecialtyOrRole = userProfile?.specialty || (userProfile?.role ? `Rol: ${userProfile.role}` : "Especialista");
   
   const userInitials = displayName?.split(' ')
     .map(n => n[0])
@@ -32,43 +30,30 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileMenu }) => {
   const handleMarkAsRead = async (notificationId: string) => {
     if (userProfile?.role === 'doctor') {
       await updateNotificationStatus(notificationId, 'read');
-      // Considerar cerrar el dropdown si se marca como leída
-      // setShowNotificationsDropdown(false); 
     }
   };
 
   return (
     <header className="bg-white border-b border-gray-200 py-3 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
-      {/* Botón de Menú Móvil y Búsqueda */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={toggleMobileMenu}
-          className="md:hidden p-2 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500"
-          aria-label="Abrir menú"
-        >
-          <Menu size={24} />
-        </button>
-        <div className="relative w-full max-w-xs sm:max-w-sm md:max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-          <input
-            type="text"
-            placeholder="Buscar..."
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
-          />
-        </div>
+      <div className="relative w-full max-w-xs sm:max-w-sm md:max-w-md">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+        <input
+          type="text"
+          placeholder="Buscar..."
+          className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+        />
       </div>
       
-      {/* Acciones del Usuario y Notificaciones */}
       <div className="flex items-center space-x-3 md:space-x-4">
         <div className="relative">
           <button 
             onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
-            className="relative p-2 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 transition-colors"
+            className="relative p-2 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
             aria-label="Notificaciones"
           >
             <Bell size={20} />
             {unreadNotificationsCount > 0 && (
-              <span className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 rounded-full text-xs text-white flex items-center justify-center border-2 border-white">
+              <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 rounded-full text-xs text-white flex items-center justify-center border-2 border-white">
                 {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
               </span>
             )}
@@ -77,10 +62,10 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileMenu }) => {
           {showNotificationsDropdown && (
             <div 
               className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-md shadow-xl z-20 border border-gray-200"
+              onMouseLeave={() => setShowNotificationsDropdown(false)}
             >
-              <div className="p-3 border-b border-gray-200 flex justify-between items-center">
-                <h3 className="text-sm font-semibold text-gray-700">Notificaciones</h3>
-                 <button onClick={() => setShowNotificationsDropdown(false)} className="text-xs text-indigo-600 hover:underline">Cerrar</button>
+              <div className="p-3 border-b border-gray-200">
+                <h3 className="text-sm font-semibold text-gray-700">Notificaciones Recientes</h3>
               </div>
               {recentNotifications.length > 0 ? (
                 <ul className="max-h-80 overflow-y-auto">
@@ -89,15 +74,20 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileMenu }) => {
                       <div className={`p-3 hover:bg-gray-50 cursor-pointer ${notification.status === 'pending' || notification.status === 'sent' ? 'bg-indigo-50' : ''}`}
                            onClick={() => {
                              handleMarkAsRead(notification.id);
+                             // Opcional: navegar a la página de detalles de la cita si es una notificación de cita
+                             // if (notification.type === 'appointment_reminder' && notification.appointmentId) {
+                             //   navigate(`/appointments/${notification.appointmentId}`);
+                             //   setShowNotificationsDropdown(false);
+                             // }
                            }}
                       >
                         <p className="text-xs text-gray-500 mb-0.5">
-                          {notification.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          {notification.type === 'appointment_reminder' ? 'Recordatorio de Cita' : 'Notificación'}
                            - <span className="capitalize">{notification.status}</span>
                         </p>
                         <p className="text-sm text-gray-800 leading-tight">{notification.message}</p>
                         <p className="text-xs text-gray-400 mt-1">
-                          {new Date(notification.createdAt!).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short'})}
+                          {new Date(notification.createdAt!).toLocaleString(navigator.language || 'es-ES', { dateStyle: 'short', timeStyle: 'short'})}
                         </p>
                       </div>
                     </li>
@@ -108,7 +98,7 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileMenu }) => {
               )}
               <div className="p-2 border-t border-gray-200 text-center">
                 <Link
-                  to="/notifications"
+                  to="/notifications" // Enlace a la nueva página
                   onClick={() => setShowNotificationsDropdown(false)} 
                   className="text-xs text-indigo-600 hover:underline"
                 >
@@ -133,6 +123,20 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileMenu }) => {
                   {displaySpecialtyOrRole}
                 </p>
               </div>
+            )}
+            {isLoadingInfo && !userProfile && ( 
+                 <div className="hidden md:block">
+                    <div className="h-4 bg-gray-200 rounded w-24 mb-1 animate-pulse"></div>
+                    <div className="h-3 bg-gray-200 rounded w-16 animate-pulse"></div>
+                </div>
+            )}
+             {!isLoadingInfo && !userProfile && currentUser && ( 
+                 <div className="hidden md:block">
+                    <p className="text-sm font-semibold text-gray-800" title={currentUser.email || 'User'}>
+                        {currentUser.email ? currentUser.email.split('@')[0] : 'Usuario'}
+                    </p>
+                    <p className="text-xs text-red-500">Perfil no disponible</p>
+                </div>
             )}
           </div>
         ) : (
