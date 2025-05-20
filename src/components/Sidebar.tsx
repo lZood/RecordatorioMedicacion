@@ -9,17 +9,19 @@ import {
   Activity,
   FileText,
   LogOut,
-  Briefcase, // Ícono para el logo
-  Settings, // Ícono de ejemplo para "Configuración"
-  Bell // Ícono para "Notificaciones"
+  Briefcase,
+  Settings, 
+  Bell 
 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
+import clsx from 'clsx';
 
 interface SidebarProps {
-  isDesktopCollapsed: boolean;
-  setIsDesktopCollapsed: (collapsed: boolean) => void;
-  isMobileOpen?: boolean; // Para controlar la visibilidad en móviles desde Layout
-  toggleMobileSidebar?: () => void; // Para cerrar desde un ítem de menú si es necesario
+  isDesktopInitiallyCollapsed: boolean;
+  isMobileOpen: boolean;
+  toggleMobileSidebar: () => void;
+  // Nuevo: Callback para que el Sidebar notifique al Layout sobre su estado de hover
+  onDesktopHoverChange?: (isHovered: boolean) => void;
 }
 
 const navItems = [
@@ -30,25 +32,28 @@ const navItems = [
   { to: '/notifications', icon: <Bell size={22}/>, label: 'Notificaciones'},
   { to: '/vitals', icon: <Activity size={22} />, label: 'Signos Vitales' },
   { to: '/reports', icon: <FileText size={22} />, label: 'Reportes' },
-  // Puedes añadir más items aquí, por ejemplo:
   // { to: '/settings', icon: <Settings size={22} />, label: 'Configuración' },
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({
-  isDesktopCollapsed,
-  setIsDesktopCollapsed,
+  isDesktopInitiallyCollapsed,
   isMobileOpen,
-  toggleMobileSidebar
+  toggleMobileSidebar,
+  onDesktopHoverChange
 }) => {
   const { signOut, currentUser, userProfile } = useAppContext();
   const navigate = useNavigate();
+  
+  // Estado local para saber si el cursor está sobre el sidebar en escritorio
+  // Esto es diferente de isDesktopInitiallyCollapsed, que es el estado "permanente"
+  const [isDesktopHovered, setIsDesktopHovered] = React.useState(false);
 
   const handleLogout = async () => {
     try {
       await signOut();
       navigate('/login', { replace: true });
-      if (isMobileOpen && toggleMobileSidebar) {
-        toggleMobileSidebar(); // Cerrar sidebar móvil después del logout
+      if (isMobileOpen) {
+        toggleMobileSidebar();
       }
     } catch (error) {
       console.error("Logout failed from Sidebar:", error);
@@ -58,45 +63,64 @@ const Sidebar: React.FC<SidebarProps> = ({
   const userName = userProfile?.name || currentUser?.email?.split('@')[0] || "Usuario";
   const userRole = userProfile?.specialty || userProfile?.role || "Rol no definido";
 
+  // Determina si el sidebar está efectivamente expandido en escritorio
+  // Considera el estado inicial colapsado Y si el cursor está encima (si aplica el hover)
+  const isEffectivelyExpandedDesktop = isDesktopInitiallyCollapsed ? isDesktopHovered : !isDesktopInitiallyCollapsed;
 
-  // Clases base para el sidebar
-  const baseSidebarClasses = `
-    fixed top-0 left-0 h-full bg-slate-800 text-slate-100 flex flex-col
-    transition-all duration-300 ease-in-out shadow-xl z-40
-  `;
-
-  // Clases para escritorio
-  const desktopSidebarClasses = `
-    hidden md:flex 
-    ${isDesktopCollapsed ? 'w-20 hover:w-64' : 'w-64'}
-  `;
+  // Determina si el texto debe ser visible
+  const showText = isMobileOpen || isEffectivelyExpandedDesktop;
   
-  // Clases para móvil (controlado por isMobileOpen desde Layout)
-  const mobileSidebarClasses = `
-     md:hidden
-     ${isMobileOpen ? 'w-64 transform translate-x-0' : 'w-64 transform -translate-x-full'}
-  `;
+  // Determina si estamos en modo escritorio realmente colapsado (para centrar íconos)
+  // Esto es cuando el sidebar está configurado para estar colapsado Y no está siendo hovereado Y no es móvil.
+  const isTrulyCollapsedDesktop = isDesktopInitiallyCollapsed && !isDesktopHovered && !isMobileOpen;
 
 
+  const sidebarClasses = clsx(
+    'fixed top-0 left-0 h-full bg-slate-800 text-slate-100 flex flex-col',
+    'transition-all duration-300 ease-in-out shadow-2xl z-40',
+    // Móvil: siempre w-64, se mueve con translate
+    'md:hidden', 
+    isMobileOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full',
+    
+    // Escritorio:
+    {
+      'hidden md:flex': true, // Asegura que solo sea flex en escritorio
+      'md:translate-x-0': true, // Siempre visible en X en escritorio
+      'md:w-20': isDesktopInitiallyCollapsed && !isDesktopHovered, // Colapsado y sin hover
+      'md:w-64': !isDesktopInitiallyCollapsed || (isDesktopInitiallyCollapsed && isDesktopHovered), // Expandido o colapsado con hover
+    }
+  );
+  
   return (
     <aside
-      className={`${baseSidebarClasses} ${desktopSidebarClasses} ${mobileSidebarClasses}`}
-      onMouseEnter={() => setIsDesktopCollapsed(false)}
-      onMouseLeave={() => setIsDesktopCollapsed(true)}
+      className={sidebarClasses}
+      onMouseEnter={() => {
+        if (window.innerWidth >= 768 && isDesktopInitiallyCollapsed) {
+          setIsDesktopHovered(true);
+          if (onDesktopHoverChange) onDesktopHoverChange(true);
+        }
+      }}
+      onMouseLeave={() => {
+        if (window.innerWidth >= 768 && isDesktopInitiallyCollapsed) {
+          setIsDesktopHovered(false);
+          if (onDesktopHoverChange) onDesktopHoverChange(false);
+        }
+      }}
     >
       {/* Logo y Título */}
-      <div className={`flex items-center p-4 h-16 border-b border-slate-700 ${isDesktopCollapsed && !isMobileOpen ? 'justify-center' : 'justify-between'}`}>
-        <div className={`flex items-center gap-2 ${ (isDesktopCollapsed && !isMobileOpen) ? 'md:group-hover:flex' : ''}`}>
-          <Briefcase size={isDesktopCollapsed && !isMobileOpen ? 28 : 26} className="text-indigo-400 flex-shrink-0" />
-          {(!isDesktopCollapsed || isMobileOpen) && (
-            <span className="text-xl font-semibold whitespace-nowrap">MediRemind</span>
-          )}
-        </div>
+      <div className={clsx(
+        "flex items-center p-4 h-16 border-b border-slate-700 shrink-0",
+        { "justify-center": isTrulyCollapsedDesktop } 
+      )}>
+        <Briefcase size={showText ? 26 : 28} className="text-indigo-400 flex-shrink-0" />
+        {showText && (
+          <span className="text-xl font-semibold whitespace-nowrap ml-2">MediRemind</span>
+        )}
       </div>
 
-      {/* Perfil del Usuario (Opcional, mejor en Header para móviles) */}
-      {(!isDesktopCollapsed || isMobileOpen) && currentUser && (
-        <div className="p-4 border-b border-slate-700">
+      {/* Perfil del Usuario */}
+      {showText && currentUser && (
+        <div className="p-4 border-b border-slate-700 shrink-0">
             <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center text-white font-semibold text-sm mb-2 mx-auto">
                 {userName.substring(0,2).toUpperCase()}
             </div>
@@ -105,7 +129,6 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-
       {/* Navegación Principal */}
       <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
         <ul>
@@ -113,21 +136,22 @@ const Sidebar: React.FC<SidebarProps> = ({
             <li key={item.to}>
               <NavLink
                 to={item.to}
-                onClick={isMobileOpen ? toggleMobileSidebar : undefined} // Cerrar en móvil al hacer clic
-                className={({ isActive }) => `
-                  flex items-center py-3 text-sm transition-colors duration-200 group
-                  ${isDesktopCollapsed && !isMobileOpen ? 'px-0 justify-center w-20 h-14' : 'px-4'}
-                  ${isActive 
-                    ? 'bg-indigo-600 text-white font-medium shadow-inner' 
-                    : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                onClick={isMobileOpen ? toggleMobileSidebar : undefined}
+                className={({ isActive }) => clsx(
+                  "flex items-center py-3 text-sm transition-colors duration-200",
+                  {
+                    "px-4": showText,
+                    "justify-center h-14": isTrulyCollapsedDesktop,
+                    "bg-indigo-600 text-white font-medium shadow-inner": isActive,
+                    "text-slate-300 hover:bg-slate-700 hover:text-white": !isActive,
                   }
-                `}
-                title={isDesktopCollapsed && !isMobileOpen ? item.label : ""} // Tooltip para modo colapsado
+                )}
+                title={isTrulyCollapsedDesktop ? item.label : ""}
               >
-                <span className={`flex-shrink-0 ${isDesktopCollapsed && !isMobileOpen ? '' : 'mr-3'}`}>
-                    {React.cloneElement(item.icon as React.ReactElement, { strokeWidth: 1.75 })}
+                <span className={clsx("flex-shrink-0", { "mr-3": showText })}>
+                  {React.cloneElement(item.icon as React.ReactElement, { strokeWidth: 1.75 })}
                 </span>
-                {(!isDesktopCollapsed || isMobileOpen) && (
+                {showText && (
                   <span className="whitespace-nowrap">{item.label}</span>
                 )}
               </NavLink>
@@ -138,18 +162,21 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sección de Logout */}
       {currentUser && (
-        <div className={`p-4 border-t border-slate-700 ${isDesktopCollapsed && !isMobileOpen ? 'w-20' : 'w-auto'}`}>
+        <div className={clsx("p-4 border-t border-slate-700 shrink-0")}>
           <button
             onClick={handleLogout}
-            title={isDesktopCollapsed && !isMobileOpen ? "Logout" : ""}
-            className={`
-              w-full flex items-center text-sm transition-colors duration-200 group
-              ${isDesktopCollapsed && !isMobileOpen ? 'px-0 justify-center h-12' : 'px-4 py-3'}
-              text-slate-300 hover:bg-red-600 hover:text-white rounded-md
-            `}
+            title={isTrulyCollapsedDesktop ? "Logout" : ""}
+            className={clsx(
+              "w-full flex items-center text-sm transition-colors duration-200 rounded-md",
+              "text-slate-300 hover:bg-red-600 hover:text-white",
+              {
+                "px-4 py-3": showText,
+                "justify-center h-12": isTrulyCollapsedDesktop,
+              }
+            )}
           >
-            <LogOut size={20} strokeWidth={1.75} className={`${isDesktopCollapsed && !isMobileOpen ? '' : 'mr-3'}`} />
-            {(!isDesktopCollapsed || isMobileOpen) && <span className="whitespace-nowrap">Logout</span>}
+            <LogOut size={20} strokeWidth={1.75} className={clsx({ "mr-3": showText })} />
+            {showText && <span className="whitespace-nowrap">Logout</span>}
           </button>
         </div>
       )}
