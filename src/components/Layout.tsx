@@ -1,50 +1,70 @@
+// src/components/Layout.tsx
 import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import { Menu, X as CloseIcon } from 'lucide-react'; // Importar Menu y X
+import clsx from 'clsx';
 
 const Layout: React.FC = () => {
-  // Estado para el sidebar de escritorio: colapsado por defecto
-  const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(true);
+  // Estado para el colapso *persistente* del sidebar en escritorio (controlado por un botón futuro, por ejemplo)
+  const [isDesktopSidebarPermanentlyCollapsed, setIsDesktopSidebarPermanentlyCollapsed] = useState(true);
   
-  // Estado para el sidebar móvil: cerrado por defecto
+  // Estado para saber si el cursor está sobre el sidebar en escritorio (para el efecto hover)
+  const [isDesktopSidebarHovered, setIsDesktopSidebarHovered] = useState(false);
+
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const location = useLocation();
 
-  // Cerrar el sidebar móvil cuando cambia la ruta
   useEffect(() => {
-    setIsMobileSidebarOpen(false);
+    setIsMobileSidebarOpen(false); 
   }, [location]);
 
   const toggleMobileSidebar = () => {
     setIsMobileSidebarOpen(!isMobileSidebarOpen);
   };
 
+  // Función para que Sidebar notifique al Layout sobre el hover
+  const handleDesktopSidebarHoverChange = (isHovered: boolean) => {
+    setIsDesktopSidebarHovered(isHovered);
+  };
+
+  // Determina el padding izquierdo para el contenido principal en escritorio
+  // Se basa en si el sidebar está permanentemente colapsado Y si no está siendo hovereado (si el hover lo expande)
+  const getDesktopLeftPadding = () => {
+    if (isDesktopSidebarPermanentlyCollapsed) {
+      return isDesktopSidebarHovered ? 'md:pl-64' : 'md:pl-20';
+    }
+    return 'md:pl-64'; // Si no está permanentemente colapsado, siempre es ancho
+  };
+
   return (
-    <div className="flex min-h-screen bg-slate-100 relative">
-      {/* Sidebar */}
+    <div className="flex h-screen bg-slate-100">
       <Sidebar 
-        isDesktopCollapsed={isDesktopCollapsed}
-        setIsDesktopCollapsed={setIsDesktopCollapsed}
+        isDesktopInitiallyCollapsed={isDesktopSidebarPermanentlyCollapsed}
         isMobileOpen={isMobileSidebarOpen}
         toggleMobileSidebar={toggleMobileSidebar}
+        onDesktopHoverChange={handleDesktopSidebarHoverChange} // Pasar el callback
       />
 
-      {/* Contenedor Principal del Contenido */}
-      <div className={`flex flex-col flex-1 overflow-hidden transition-all duration-300 ease-in-out ${!isDesktopCollapsed ? 'md:ml-64' : 'md:ml-20'}`}>
-        {/* Header con botón de menú para móviles */}
-        <Header toggleMobileSidebar={toggleMobileSidebar} isMobileSidebarOpen={isMobileSidebarOpen}/>
+      <div className={clsx(
+        "flex flex-col flex-1 overflow-hidden transition-all duration-300 ease-in-out",
+        getDesktopLeftPadding() // Aplicar padding dinámico
+      )}>
+        <Header 
+            toggleMobileSidebar={toggleMobileSidebar} 
+            isMobileSidebarOpen={isMobileSidebarOpen}
+            // Aquí podrías pasar una función para cambiar `isDesktopSidebarPermanentlyCollapsed`
+            // si añades un botón en el Header para ello.
+        />
         
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6">
           <Outlet />
         </main>
       </div>
 
-      {/* Overlay para cerrar el sidebar móvil al hacer clic fuera (opcional pero recomendado) */}
       {isMobileSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+          className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
           onClick={toggleMobileSidebar}
         ></div>
       )}
