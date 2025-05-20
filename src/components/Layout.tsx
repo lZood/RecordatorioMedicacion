@@ -22,7 +22,7 @@ const Layout: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-slate-100">
+    <div className="flex min-h-screen bg-slate-100 relative">
       {/* Sidebar */}
       <Sidebar 
         isDesktopCollapsed={isDesktopCollapsed}
@@ -32,7 +32,7 @@ const Layout: React.FC = () => {
       />
 
       {/* Contenedor Principal del Contenido */}
-      <div className={`flex flex-col flex-1 overflow-hidden transition-all duration-300 ease-in-out md:ml-20 ${!isDesktopCollapsed ? 'md:ml-64' : 'md:ml-20'}`}>
+      <div className={`flex flex-col flex-1 overflow-hidden transition-all duration-300 ease-in-out ${!isDesktopCollapsed ? 'md:ml-64' : 'md:ml-20'}`}>
         {/* Header con botón de menú para móviles */}
         <Header toggleMobileSidebar={toggleMobileSidebar} isMobileSidebarOpen={isMobileSidebarOpen}/>
         
@@ -44,7 +44,7 @@ const Layout: React.FC = () => {
       {/* Overlay para cerrar el sidebar móvil al hacer clic fuera (opcional pero recomendado) */}
       {isMobileSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-25 z-30 md:hidden"
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
           onClick={toggleMobileSidebar}
         ></div>
       )}

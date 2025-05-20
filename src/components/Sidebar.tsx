@@ -61,28 +61,29 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Clases base para el sidebar
   const baseSidebarClasses = `
-    fixed top-0 left-0 h-full bg-slate-800 text-slate-100 flex flex-col
+    fixed top-0 left-0 h-full bg-slate-800 text-slate-100 flex flex-col z-50
     transition-all duration-300 ease-in-out shadow-xl z-40
   `;
 
   // Clases para escritorio
   const desktopSidebarClasses = `
-    hidden md:flex 
+    hidden md:block
     ${isDesktopCollapsed ? 'w-20 hover:w-64' : 'w-64'}
   `;
   
   // Clases para móvil (controlado por isMobileOpen desde Layout)
   const mobileSidebarClasses = `
-     md:hidden
-     ${isMobileOpen ? 'w-64 transform translate-x-0' : 'w-64 transform -translate-x-full'}
+    block md:hidden
+    ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
+    w-64
   `;
 
 
   return (
     <aside
       className={`${baseSidebarClasses} ${desktopSidebarClasses} ${mobileSidebarClasses}`}
-      onMouseEnter={() => setIsDesktopCollapsed(false)}
-      onMouseLeave={() => setIsDesktopCollapsed(true)}
+      onMouseEnter={() => !isMobileOpen && setIsDesktopCollapsed(false)}
+      onMouseLeave={() => !isMobileOpen && setIsDesktopCollapsed(true)}
     >
       {/* Logo y Título */}
       <div className={`flex items-center p-4 h-16 border-b border-slate-700 ${isDesktopCollapsed && !isMobileOpen ? 'justify-center' : 'justify-between'}`}>
