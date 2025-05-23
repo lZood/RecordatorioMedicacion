@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Bell, Search, User as UserIcon, Menu, X as CloseIcon } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
+import clsx from 'clsx';
 import { Link } from 'react-router-dom'; // No se usa useNavigate aquí
 // import toast from 'react-hot-toast'; // No es necesario si las notificaciones se manejan en AppContext
 
