@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react'; // React ya está importado 
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar'; // Sidebar ya está importado arriba
 import Header from './Header';
-// import clsx from 'clsx'; // clsx ya está importado arriba
+import clsx from 'clsx'; // clsx ya está importado arriba
 
 const Layout: React.FC = () => {
   // Estado para el colapso *persistente* del sidebar en escritorio (controlado por un botón futuro, por ejemplo)
