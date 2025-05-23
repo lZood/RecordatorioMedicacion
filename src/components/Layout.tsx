@@ -1,7 +1,7 @@
 // src/components/Layout.tsx
 import React, { useState, useEffect } from 'react'; // React ya está importado arriba
 import { Outlet, useLocation } from 'react-router-dom';
-// import Sidebar from './Sidebar'; // Sidebar ya está importado arriba
+import Sidebar from './Sidebar'; // Sidebar ya está importado arriba
 import Header from './Header';
 // import clsx from 'clsx'; // clsx ya está importado arriba
 
