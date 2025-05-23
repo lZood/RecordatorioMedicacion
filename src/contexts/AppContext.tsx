@@ -64,12 +64,12 @@ interface AppContextType {
   deleteVitalSign: (id: string) => Promise<void>;
   fetchVitalSignsForPatient: (patientId: string) => Promise<VitalSign[]>;
   
-  medicationIntakes: MedicationIntakeWithMedication[]; // Este será el estado global para todas las tomas
-  loadingMedicationIntakesGlobal: boolean; // Nuevo estado de carga para las tomas globales
+  medicationIntakes: MedicationIntakeWithMedication[]; 
+  loadingMedicationIntakesGlobal: boolean; 
   addMedicationIntake: (intakeData: Omit<MedicationIntake, 'id' | 'createdAt' | 'updatedAt'>) => Promise<MedicationIntakeWithMedication | undefined>;
   updateMedicationIntake: (id: string, intakeUpdateData: Partial<Omit<MedicationIntake, 'id' | 'patientId' | 'medicationId' | 'createdAt' | 'updatedAt'>>) => Promise<MedicationIntakeWithMedication | undefined>;
   deleteMedicationIntake: (id: string) => Promise<void>;
-  fetchMedicationIntakesForPatient: (patientId: string) => Promise<MedicationIntakeWithMedication[]>; // Para carga específica en PatientDetails
+  fetchMedicationIntakesForPatient: (patientId: string) => Promise<MedicationIntakeWithMedication[]>; 
 
   notifications: Notification[];
   loadingNotifications: boolean;
@@ -78,7 +78,7 @@ interface AppContextType {
   updateNotificationStatus: (notificationId: string, status: Notification['status']) => Promise<Notification | undefined>;
   
   signOut: () => Promise<void>;
-  loadInitialData: (user: User | null) => Promise<void>; // Renamed for clarity
+  loadInitialData: (user: User | null) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -86,9 +86,9 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [loadingAuth, setLoadingAuth] = useState(true); // True until initial auth state is resolved
-  const [loadingData, setLoadingData] = useState(false); // True while loading main app data
-  const [loadingProfile, setLoadingProfile] = useState(false); // True while loading user profile
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [loadingData, setLoadingData] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(false);
 
   const [patients, setPatients] = useState<Patient[]>([]);
   const [medications, setMedications] = useState<Medication[]>([]);
@@ -103,7 +103,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [loadingDoctors, setLoadingDoctors] = useState(false);
   const [loadingVitalSigns, setLoadingVitalSigns] = useState(false);
   const [loadingMedicationIntakesGlobal, setLoadingMedicationIntakesGlobal] = useState(false);
-  // const [loadingMedicationIntakes, setLoadingMedicationIntakes] = useState(false); // This was for specific patient, managed by its own function
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [notificationChecksDone, setNotificationChecksDone] = useState(false);
 
@@ -135,30 +134,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!authUser) {
       console.log("AppContext: internalLoadInitialData - No authUser, clearing data.");
       setUserProfile(null); 
-      setLoadingProfile(false); // Ensure profile loading is false
+      setLoadingProfile(false);
       setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
       setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
       setLoadingData(false); setLoadingAppointments(false); setLoadingMedications(false);
       setLoadingDoctors(false); setLoadingVitalSigns(false);
       setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
-      setNotificationChecksDone(false); // Reset this flag
+      setNotificationChecksDone(false);
       return;
     }
 
     console.log("AppContext: internalLoadInitialData - Loading data for user:", authUser.id);
-    setLoadingData(true); // Indicates general data loading
+    setLoadingData(true);
 
     const fetchedProfile = await fetchUserProfile(authUser.id);
 
     if (!fetchedProfile) {
         console.warn(`AppContext: internalLoadInitialData - No profile fetched for user ${authUser.id}. Aborting data load.`);
-        setLoadingData(false); // End general loading
-        // Ensure other specific loaders are also false
+        setLoadingData(false);
         setLoadingAppointments(false); setLoadingMedications(false); setLoadingDoctors(false);
         setLoadingVitalSigns(false); setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
-        setNotificationChecksDone(true); // Mark as done even if no data
-        // Potentially sign out if profile is essential and couldn't be loaded
-        // await authService.signOut(); // Consider this if a profile is absolutely necessary and it fails.
+        setLoadingProfile(false); 
+        setNotificationChecksDone(true);
         return;
     }
 
@@ -189,7 +186,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       } catch (error) {
         console.error("AppContext: Error loading initial data sets for doctor:", error);
         toast.error("No se pudieron cargar todos los datos de la aplicación.");
-        // Clear data on error to avoid inconsistent state
         setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
         setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
       } finally {
@@ -200,36 +196,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.log(`AppContext: internalLoadInitialData - User role is '${fetchedProfile.role}', not 'doctor'. Clearing doctor-specific data.`);
       setPatients([]); setMedications([]); setAppointments([]);
       setVitalSigns([]); setMedicationIntakes([]);
-      // setDoctors([]); // You might want to keep the list of all doctors if it's globally useful
       setNotifications([]);
     }
-    setLoadingData(false); // End general data loading
+    setLoadingData(false);
     setNotificationChecksDone(true);
-  }, [fetchUserProfile]); // fetchUserProfile is a stable useCallback
+  }, [fetchUserProfile]);
 
   useEffect(() => {
-    console.log("AppContext: Main auth effect hook initializing.");
-    setLoadingAuth(true);
+    console.log("AppContext: Auth useEffect running. CurrentUser ID:", currentUser?.id);
     let isMounted = true;
+    // setLoadingAuth(true) was here, but it's better to set it true only once at the start of the provider
 
     const handleAuthChange = async (event: string, session: import('@supabase/supabase-js').Session | null) => {
-      if (!isMounted) return;
-      console.log("AppContext: onAuthStateChange event:", event, "Session active:", !!session);
-      
-      const user = session?.user ?? null;
-      
-      // Use a functional update for setCurrentUser if its previous state is needed for comparison
-      // However, here we compare the new user's ID with the ID stored in the `currentUser` state variable.
-      if (user?.id !== currentUser?.id || (!user && currentUser)) {
-        console.log(`AppContext: User changed. Previous: ${currentUser?.id}, New: ${user?.id}. Triggering data load.`);
-        setCurrentUser(user); // Update currentUser state
-        await internalLoadInitialData(user); // Pass the new user object
-      } else {
-        console.log(`AppContext: User unchanged (ID: ${currentUser?.id}). Event: ${event}. No full data reload from onAuthStateChange.`);
+      if (!isMounted) {
+        console.log("AppContext: handleAuthChange - unmounted, skipping.");
+        return;
       }
-      
-      // Only set loadingAuth to false after the first auth event is processed.
-      // This ensures ProtectedRoute doesn't try to act before we know the auth state.
+      console.log("AppContext: onAuthStateChange event:", event, "Session active:", !!session, "Current User in closure:", currentUser?.id);
+      const newUser = session?.user ?? null;
+
+      if (newUser?.id !== currentUser?.id || (!newUser && currentUser) || (newUser && !currentUser)) {
+        console.log(`AppContext: User state changed via onAuthStateChange. Previous: ${currentUser?.id}, New: ${newUser?.id}. Setting currentUser.`);
+        // This will trigger the data loading useEffect
+        setCurrentUser(newUser); 
+      } else {
+        console.log(`AppContext: User state unchanged via onAuthStateChange (ID: ${currentUser?.id}). Event: ${event}.`);
+      }
+      // Ensure loadingAuth is set to false after the first meaningful event or initial check.
       if (loadingAuth) {
         setLoadingAuth(false);
       }
@@ -238,46 +231,73 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthChange);
 
     // Initial session check
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!isMounted) return;
-      console.log("AppContext: Initial getSession() result:", session);
-      const userFromGetSession = session?.user ?? null;
+    if (isMounted && loadingAuth) { // Only run if still loadingAuth to avoid race with onAuthStateChange
+        console.log("AppContext: Attempting initial getSession() as loadingAuth is true.");
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (!isMounted) {
+                console.log("AppContext: getSession callback - unmounted, skipping.");
+                return;
+            }
+            console.log("AppContext: Initial getSession() result:", session);
+            const userFromGetSession = session?.user ?? null;
 
-      // This condition ensures we process the session if it's different from current,
-      // or if it's the very first load (currentUser would be null).
-      if (userFromGetSession?.id !== currentUser?.id || (!userFromGetSession && currentUser) || (userFromGetSession && !currentUser)) {
-         console.log("AppContext: Initial session from getSession() differs or is first load. Processing.");
-         setCurrentUser(userFromGetSession);
-         await internalLoadInitialData(userFromGetSession);
-      }
-      
-      // Ensure loadingAuth is set to false if it hasn't been by the listener yet.
-      // This is crucial for the initial page load.
-      if (loadingAuth) {
-        setLoadingAuth(false);
-      }
-    }).catch(error => {
-        if (!isMounted) return;
-        console.error("AppContext: Error fetching initial session with getSession():", error);
-        setCurrentUser(null);
-        internalLoadInitialData(null);
-        if (loadingAuth) { // Ensure it's set to false even on error
+            // Critical: Only set currentUser if it's genuinely different or if onAuthStateChange hasn't run yet
+            // This check helps prevent redundant setCurrentUser calls if onAuthStateChange already set it.
+            if (userFromGetSession?.id !== currentUser?.id || (!userFromGetSession && currentUser) || (userFromGetSession && !currentUser)) {
+                 console.log("AppContext: Initial session from getSession() requires processing. Setting user.");
+                 setCurrentUser(userFromGetSession); // This will trigger the data loading useEffect
+            }
+            // Always ensure loadingAuth is false after getSession completes,
+            // as this is part of the initial auth resolution.
             setLoadingAuth(false);
-        }
-    });
+        }).catch(error => {
+            if (!isMounted) return;
+            console.error("AppContext: Error fetching initial session with getSession():", error);
+            setCurrentUser(null); // This will trigger data clearing via the other useEffect
+            setLoadingAuth(false); // Ensure it's set to false even on error
+        });
+    }
+
 
     return () => {
-      console.log("AppContext: Unsubscribing from onAuthStateChange (unmount).");
+      console.log("AppContext: Unsubscribing from onAuthStateChange (unmount/re-run due to currentUser change).");
       isMounted = false;
       subscription?.unsubscribe();
     };
-  // internalLoadInitialData is stable. currentUser is intentionally omitted to prevent loops.
-  // loadingAuth is also omitted as its change shouldn't re-trigger this effect.
-  }, [internalLoadInitialData]);
+  }, [currentUser]); // Re-run this effect if currentUser changes, to re-subscribe with the correct closure.
+
+  // Effect for loading data based on currentUser
+  useEffect(() => {
+    let isMounted = true;
+    console.log("AppContext: Data loading useEffect triggered. CurrentUser ID:", currentUser?.id, "LoadingAuth:", loadingAuth);
+
+    // Only load data if authentication is no longer loading AND we have a definitive currentUser state
+    if (!loadingAuth) {
+        if (currentUser) {
+            console.log("AppContext: Data loading useEffect - currentUser exists, calling internalLoadInitialData for user:", currentUser.id);
+            if (isMounted) {
+                internalLoadInitialData(currentUser).catch(err => {
+                    if (isMounted) console.error("AppContext: Error during internalLoadInitialData in dedicated effect:", err);
+                });
+            }
+        } else {
+            console.log("AppContext: Data loading useEffect - currentUser is null, ensuring data is cleared.");
+            if (isMounted) {
+                internalLoadInitialData(null).catch(err => {
+                     if (isMounted) console.error("AppContext: Error during internalLoadInitialData (for null user) in dedicated effect:", err);
+                });
+            }
+        }
+    } else {
+        console.log("AppContext: Data loading useEffect - Auth is still loading, deferring data load.");
+    }
+    return () => {
+        isMounted = false;
+    }
+  }, [currentUser, loadingAuth, internalLoadInitialData]);
 
 
   const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
-    // Capture currentUser and userProfile at the time of useCallback definition
     const currentAuthUser = currentUser;
     const currentProfile = userProfile;
 
@@ -317,7 +337,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
     return undefined;
-  }, [currentUser, userProfile]); // Depend on currentUser and userProfile
+  }, [currentUser, userProfile]);
 
   const updateAppointmentFlag = useCallback(async (appointmentId: string, flagUpdates: Partial<Pick<Appointment, 'notificacion_recordatorio_24h_enviada'>>) => {
     try {
@@ -673,7 +693,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const patient = patients.find(p => p.id === newVitalSign.patientId);
           await addNotification({
             patientId: newVitalSign.patientId,
-            doctorId: currentUser.id, // Use currentUser here
+            doctorId: currentUser.id, 
             message: `Alerta Signo Vital: ${patient?.name || 'Paciente desconocido'} registró ${newVitalSign.type} ${abnormalityCheck.reason}.`,
             type: 'abnormal_vital_sign',
             status: 'pending'
@@ -727,7 +747,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toast.error("Autenticación requerida/Rol de doctor necesario"); 
       throw new Error("Not authorized."); 
     }
-    // setLoadingVitalSigns(true); // This state is for the global vital signs page, not specific patient details
     try {
         const data = await vitalSignService.getByPatient(patientId);
         return data;
@@ -735,7 +754,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toast.error(`Error al obtener signos vitales: ${error.message || 'Error desconocido'}`); 
       throw error; 
     }
-    // finally { setLoadingVitalSigns(false); }
   }, [currentUser, userProfile]);
 
   const addMedicationIntake = useCallback(async (intakeData: Omit<MedicationIntake, 'id' | 'createdAt' | 'updatedAt'>): Promise<MedicationIntakeWithMedication | undefined> => {
@@ -796,7 +814,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toast.error("Autenticación requerida/Rol de doctor necesario"); 
       throw new Error("Not authorized."); 
     }
-    // setLoadingMedicationIntakes(true); // This is managed locally in PatientDetails or the page using it
     try {
       const data = await medicationIntakeService.getByPatient(patientId);
       return data;
@@ -804,7 +821,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toast.error(`Error al obtener tomas: ${error.message || 'Error desconocido'}`); 
       throw error; 
     }
-    // finally { setLoadingMedicationIntakes(false); }
   }, [currentUser, userProfile]);
 
   const fetchNotificationsForPatient = useCallback(async (patientId: string): Promise<Notification[]> => {
@@ -846,9 +862,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const { error } = await authService.signOut();
       if (error) throw error;
-      // States will be cleared by internalLoadInitialData(null) via onAuthStateChange
       toast.dismiss('signout-toast');
       toast.success('Sesión cerrada exitosamente!');
+      // No es necesario limpiar estados aquí, el listener onAuthStateChange lo hará
+      // y el ProtectedRoute redirigirá.
     } catch (error: any) {
       toast.dismiss('signout-toast');
       console.error("AppContext: Sign out error:", error);
