@@ -6,7 +6,7 @@ import Header from './Header';
 import clsx from 'clsx';
 
 const Layout: React.FC = () => {
-  // Estado para el colapso *persistente* del sidebar en escritorio (controlado por un botón futuro, por ejemplo)
+  // Estado para el colapso *persistente* del sidebar en escritorio
   const [isDesktopSidebarPermanentlyCollapsed, setIsDesktopSidebarPermanentlyCollapsed] = useState(true);
   
   // Estado para saber si el cursor está sobre el sidebar en escritorio (para el efecto hover)
@@ -23,18 +23,19 @@ const Layout: React.FC = () => {
     setIsMobileSidebarOpen(!isMobileSidebarOpen);
   };
 
-  // Función para que Sidebar notifique al Layout sobre el hover
   const handleDesktopSidebarHoverChange = (isHovered: boolean) => {
     setIsDesktopSidebarHovered(isHovered);
   };
 
   // Determina el padding izquierdo para el contenido principal en escritorio
-  // Se basa en si el sidebar está permanentemente colapsado Y si no está siendo hovereado (si el hover lo expande)
   const getDesktopLeftPadding = () => {
-    if (isDesktopSidebarPermanentlyCollapsed) {
-      return isDesktopSidebarHovered ? 'md:pl-64' : 'md:pl-20';
+    // Si está permanentemente colapsado Y NO está hovereado -> padding 0 (sidebar oculto)
+    if (isDesktopSidebarPermanentlyCollapsed && !isDesktopSidebarHovered) {
+      return 'md:pl-0';
     }
-    return 'md:pl-64'; // Si no está permanentemente colapsado, siempre es ancho
+    // En cualquier otro caso donde el sidebar de escritorio sea visible y expandido
+    // (permanentemente expandido O colapsado pero con hover)
+    return 'md:pl-64';
   };
 
   return (
@@ -43,7 +44,7 @@ const Layout: React.FC = () => {
         isDesktopInitiallyCollapsed={isDesktopSidebarPermanentlyCollapsed}
         isMobileOpen={isMobileSidebarOpen}
         toggleMobileSidebar={toggleMobileSidebar}
-        onDesktopHoverChange={handleDesktopSidebarHoverChange} // Pasar el callback
+        onDesktopHoverChange={handleDesktopSidebarHoverChange}
       />
 
       <div className={clsx(
@@ -53,8 +54,6 @@ const Layout: React.FC = () => {
         <Header 
             toggleMobileSidebar={toggleMobileSidebar} 
             isMobileSidebarOpen={isMobileSidebarOpen}
-            // Aquí podrías pasar una función para cambiar `isDesktopSidebarPermanentlyCollapsed`
-            // si añades un botón en el Header para ello.
         />
         
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6">
