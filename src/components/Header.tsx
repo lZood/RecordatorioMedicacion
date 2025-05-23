@@ -89,17 +89,17 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileSidebar, isMobileSidebarOpe
                   {recentNotifications.map(notification => (
                     <li key={notification.id} className="border-b border-slate-100 last:border-b-0">
                       <div className={`p-3 hover:bg-slate-50 cursor-pointer ${notification.status === 'pending' || notification.status === 'sent' ? 'bg-indigo-50' : ''}`}
-                           onClick={() => {
-                             handleMarkAsRead(notification.id);
-                             // if (notification.type === 'appointment_reminder' && notification.appointmentId) {
-                             //   navigate(`/appointments/${notification.appointmentId}`);
-                             //   setShowNotificationsDropdown(false);
-                             // }
-                           }}
+                               onClick={() => {
+                                 handleMarkAsRead(notification.id);
+                                 // if (notification.type === 'appointment_reminder' && notification.appointmentId) {
+                                 //   navigate(`/appointments/${notification.appointmentId}`);
+                                 //   setShowNotificationsDropdown(false);
+                                 // }
+                               }}
                       >
                         <p className="text-xs text-slate-500 mb-0.5">
                           {notification.type === 'appointment_reminder' ? 'Recordatorio de Cita' : 'Notificación'}
-                           - <span className="capitalize">{notification.status}</span>
+                            - <span className="capitalize">{notification.status}</span>
                         </p>
                         <p className="text-sm text-slate-800 leading-tight">{notification.message}</p>
                         <p className="text-xs text-slate-400 mt-1">
@@ -142,18 +142,18 @@ const Header: React.FC<HeaderProps> = ({ toggleMobileSidebar, isMobileSidebarOpe
               </div>
             )}
             {isLoadingInfo && !userProfile && ( 
-                 <div className="hidden md:block">
-                    <div className="h-4 bg-slate-200 rounded w-24 mb-1 animate-pulse"></div>
-                    <div className="h-3 bg-slate-200 rounded w-16 animate-pulse"></div>
-                </div>
+                   <div className="hidden md:block">
+                      <div className="h-4 bg-slate-200 rounded w-24 mb-1 animate-pulse"></div>
+                      <div className="h-3 bg-slate-200 rounded w-16 animate-pulse"></div>
+                  </div>
             )}
-             {(!isLoadingInfo && !userProfile && currentUser) && ( // Caso: logueado pero sin perfil cargado
-                 <div className="hidden md:block">
+              {(!isLoadingInfo && !userProfile && currentUser) && ( // Caso: logueado pero sin perfil cargado
+                  <div className="hidden md:block">
                     <p className="text-sm font-semibold text-slate-800" title={currentUser.email || 'User'}>
                         {currentUser.email ? currentUser.email.split('@')[0] : 'Usuario'}
                     </p>
                     <p className="text-xs text-red-500">Perfil no disponible</p>
-                </div>
+                  </div>
             )}
           </div>
         ) : ( // Caso: No logueado
