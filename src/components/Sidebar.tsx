@@ -59,27 +59,30 @@ const Sidebar: React.FC<SidebarProps> = ({
   const userName = userProfile?.name || currentUser?.email?.split('@')[0] || "Usuario";
   const userRole = userProfile?.specialty || userProfile?.role || "Rol no definido";
 
-  // Determina si el sidebar está efectivamente expandido en escritorio
   const isEffectivelyExpandedDesktop = isDesktopInitiallyCollapsed ? isDesktopHovered : !isDesktopInitiallyCollapsed;
-
-  // Determina si el texto debe ser visible
   const showText = isMobileOpen || isEffectivelyExpandedDesktop;
 
   const sidebarClasses = clsx(
-    'fixed top-0 left-0 h-full bg-slate-800 text-slate-100 flex flex-col',
-    'transition-all duration-300 ease-in-out shadow-2xl z-40',
-    
-    // Comportamiento Móvil (sin cambios)
-    'md:hidden', 
-    isMobileOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full',
-    
-    // Comportamiento Escritorio Modificado
+    'fixed top-0 left-0 h-full bg-slate-800 text-slate-100 flex flex-col', // Clases base siempre aplicadas
+    'transition-transform duration-300 ease-in-out', // Transición para el deslizamiento
+    'shadow-2xl z-40', // Asegura que esté sobre el contenido y el overlay móvil
+
+    // ---- ESTADO MÓVIL (<md) ----
+    // Aplica transformaciones para mostrar/ocultar. El ancho es fijo.
+    // Estas clases son las predeterminadas y serán anuladas por las clases 'md:' en escritorio.
+    isMobileOpen ? 'translate-x-0 w-64' : '-translate-x-full w-64',
+
+    // ---- ESTADO ESCRITORIO (md y superior) ----
+    // Anula la transformación de 'translate-x' móvil por defecto para escritorio.
+    'md:translate-x-0', 
     {
-      'hidden md:flex': true, // Mantiene el sidebar como flex en escritorio
-      // Si está permanentemente colapsado (estado inicial por defecto) Y NO hovereado -> ocultar completamente
+      // Si está colapsado por defecto en escritorio Y NO está siendo hovereado:
+      // se oculta deslizándose fuera de la pantalla. El ancho no importa mucho aquí.
       'md:-translate-x-full': isDesktopInitiallyCollapsed && !isDesktopHovered,
-      // Si NO está permanentemente colapsado O SÍ está hovereado (cuando isDesktopInitiallyCollapsed es true) -> mostrar y expandir
-      'md:translate-x-0 md:w-64': !isDesktopInitiallyCollapsed || (isDesktopInitiallyCollapsed && isDesktopHovered),
+
+      // Si está permanentemente expandido, O si está colapsado por defecto PERO SÍ está siendo hovereado:
+      // Se muestra expandido a w-64 y se asegura que esté en translate-x-0.
+      'md:w-64 md:translate-x-0': !isDesktopInitiallyCollapsed || (isDesktopInitiallyCollapsed && isDesktopHovered),
     }
   );
   
@@ -100,12 +103,9 @@ const Sidebar: React.FC<SidebarProps> = ({
       }}
     >
       {/* Logo y Título */}
-      {/* El contenido solo es relevante si showText es true, ya que sino, está oculto o es móvil */}
       <div className={clsx(
         "flex items-center p-4 h-16 border-b border-slate-700 shrink-0",
-        // No necesitamos 'justify-center' si está oculto en lugar de colapsado a íconos
       )}>
-        {/* El ícono siempre puede estar presente, el texto depende de showText */}
         <Briefcase size={showText ? 26 : 28} className="text-indigo-400 flex-shrink-0" />
         {showText && (
           <span className="text-xl font-semibold whitespace-nowrap ml-2">MediRemind</span>
@@ -113,7 +113,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Perfil del Usuario */}
-      {showText && currentUser && ( // Solo mostrar si el texto es visible (sidebar expandido)
+      {showText && currentUser && (
         <div className="p-4 border-b border-slate-700 shrink-0">
             <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center text-white font-semibold text-sm mb-2 mx-auto">
                 {userName.substring(0,2).toUpperCase()}
@@ -134,18 +134,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                 className={({ isActive }) => clsx(
                   "flex items-center py-3 text-sm transition-colors duration-200",
                   {
-                    "px-4": showText, // Padding si el texto es visible
-                    // Si no hay showText en escritorio, estará oculto, así que no se necesita padding especial para íconos solos.
-                    // En móvil, showText decide si hay padding o no (aunque w-64 lo maneja bien).
+                    "px-4": showText,
                     "bg-indigo-600 text-white font-medium shadow-inner": isActive,
                     "text-slate-300 hover:bg-slate-700 hover:text-white": !isActive,
                   }
                 )}
-                title={!showText && !isMobileOpen ? item.label : ""} // Tooltip si está oculto en escritorio y no es móvil
+                title={!showText && !isMobileOpen && isDesktopInitiallyCollapsed && !isDesktopHovered ? item.label : ""}
               >
-                <span className={clsx("flex-shrink-0", { "ml-3": !showText && isMobileOpen }, /* Añadido para centrar ícono en sidebar móvil colapsado si fuera el caso, pero no aplica aquí */
-                                     { "mr-3": showText } // Margen si hay texto
-                )}>
+                <span className={clsx("flex-shrink-0", { "mr-3": showText })}>
                   {React.cloneElement(item.icon as React.ReactElement, { strokeWidth: 1.75 })}
                 </span>
                 {showText && (
@@ -158,21 +154,19 @@ const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* Sección de Logout */}
-      {currentUser && ( // Solo mostrar si el texto es visible (sidebar expandido)
+      {currentUser && (
         <div className={clsx("p-4 border-t border-slate-700 shrink-0")}>
           <button
             onClick={handleLogout}
-            title={!showText && !isMobileOpen ? "Logout" : ""}
+            title={!showText && !isMobileOpen && isDesktopInitiallyCollapsed && !isDesktopHovered ? "Logout" : ""}
             className={clsx(
               "w-full flex items-center text-sm transition-colors duration-200 rounded-md",
               "text-slate-300 hover:bg-red-600 hover:text-white",
               {
-                "px-4 py-3": showText, // Padding si el texto es visible
-                // "justify-center h-12": !showText && !isMobileOpen, // Igual que arriba, no es necesario si está oculto
+                "px-4 py-3": showText,
               }
             )}
           >
-            {/* El ícono siempre puede estar presente */}
             <LogOut size={20} strokeWidth={1.75} className={clsx({ "mr-3": showText })} />
             {showText && <span className="whitespace-nowrap">Logout</span>}
           </button>
