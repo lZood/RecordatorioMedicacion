@@ -1,17 +1,18 @@
 // src/contexts/AppContext.tsx
 import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 import { Patient, Medication, Appointment, VitalSign, MedicationIntake, UserProfile, Notification } from '../types';
-import { MedicationIntakeWithMedication, medicationIntakeService } from '../services/medicationIntakes';
+import { MedicationIntakeWithMedication, medicationIntakeService } from '../services/medicationIntakes'; // Importar el servicio completo
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { patientService } from '../services/patients';
 import { medicationService } from '../services/medications';
 import { appointmentService } from '../services/appointments';
 import { vitalSignService } from '../services/vitalSigns';
+// medicationIntakeService ya está importado arriba
 import { profileService } from '../services/profiles';
 import { notificationService } from '../services/notificationService';
 import toast from 'react-hot-toast';
-import { authService, ExtendedSignUpCredentials } from '../services/auth'; // Asegúrate de importar ExtendedSignUpCredentials
+import { authService } from '../services/auth';
 
 // Helper function
 const isAbnormalVitalSign = (vitalSign: VitalSign): { abnormal: boolean; reason: string } => {
@@ -35,13 +36,8 @@ interface AppContextType {
   loadingProfile: boolean;
 
   patients: Patient[];
-  // Modificada la firma de addPatient
-  addPatient: (
-    patientDataForTable: Omit<Patient, 'id' | 'createdAt' | 'doctorId' | 'user_id'>, 
-    passwordForAuth: string,
-    emailForAuth: string 
-  ) => Promise<Patient | undefined>;
-  updatePatient: (id: string, updatedPatientData: Partial<Omit<Patient, 'user_id'>>) => Promise<void>; // No permitir cambiar user_id
+  addPatient: (patientData: Omit<Patient, 'id' | 'createdAt' | 'doctorId'>) => Promise<Patient | undefined>;
+  updatePatient: (id: string, updatedPatientData: Partial<Patient>) => Promise<void>;
   deletePatient: (id: string) => Promise<void>;
   getPatientById: (id: string) => Patient | undefined;
 
@@ -56,8 +52,8 @@ interface AppContextType {
   doctors: UserProfile[];
   loadingAppointments: boolean;
   loadingDoctors: boolean;
-  addAppointment: (appointmentData: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'>) => Promise<Appointment | undefined>;
-  updateAppointment: (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor'>>) => Promise<Appointment | undefined>;
+  addAppointment: (appointmentData: Omit<Appointment, 'id' | 'notificacion_recordatorio_24h_enviada'>) => Promise<Appointment | undefined>;
+  updateAppointment: (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>) => Promise<Appointment | undefined>;
   deleteAppointment: (id: string) => Promise<void>;
   getAppointmentById: (id: string) => Appointment | undefined;
 
@@ -112,20 +108,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     if (!userId) {
-      // setUserProfile(null); // No es necesario aquí, se maneja por el que llama o auth useEffect
-      // setLoadingProfile(false); // No es necesario aquí
+      setUserProfile(null);
+      setLoadingProfile(false);
       return null;
     }
     console.log(`AppContext: fetchUserProfile called for userId: ${userId}`);
-    // setLoadingProfile(true); // El que llama (internalLoadInitialData o auth useEffect) ya lo puso en true
+    setLoadingProfile(true);
     try {
       const profile = await profileService.getProfileByUserId(userId);
       console.log(`AppContext: fetchUserProfile - profileService returned:`, profile);
-      if (profile) { // Solo actualiza si el perfil es válido
-        setUserProfile(profile);
-      } else {
-        setUserProfile(null); // Asegurar que se limpia si no hay perfil
-      }
+      setUserProfile(profile);
       return profile;
     } catch (error) {
       console.error("AppContext: Error fetching user profile in fetchUserProfile:", error);
@@ -134,9 +126,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return null;
     } finally {
       console.log(`AppContext: fetchUserProfile setting loadingProfile to false for userId: ${userId}`);
-      setLoadingProfile(false); // Siempre poner a false al finalizar
+      setLoadingProfile(false);
     }
-  }, []); // Dependencias vacías si profileService es estable
+  }, []);
 
   const internalLoadInitialData = useCallback(async (authUser: User | null) => {
     if (!authUser) {
@@ -153,17 +145,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     console.log("AppContext: internalLoadInitialData - Loading data for user:", authUser.id);
-    // setLoadingProfile(true) es manejado por el useEffect de autenticación cuando currentUser cambia a un nuevo usuario
     setLoadingData(true);
 
-    const fetchedProfile = await fetchUserProfile(authUser.id); // fetchUserProfile gestionará setLoadingProfile
+    const fetchedProfile = await fetchUserProfile(authUser.id);
 
     if (!fetchedProfile) {
-        console.warn(`AppContext: internalLoadInitialData - No profile fetched for user ${authUser.id}. Aborting further data load.`);
+        console.warn(`AppContext: internalLoadInitialData - No profile fetched for user ${authUser.id}. Aborting data load.`);
         setLoadingData(false);
         setLoadingAppointments(false); setLoadingMedications(false); setLoadingDoctors(false);
         setLoadingVitalSigns(false); setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
-        // setLoadingProfile(false) es manejado por fetchUserProfile's finally block
+        setLoadingProfile(false); 
         setNotificationChecksDone(true);
         return;
     }
@@ -211,175 +202,277 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setNotificationChecksDone(true);
   }, [fetchUserProfile]);
 
-  // useEffect para manejar la autenticación
   useEffect(() => {
-    console.log("AppContext: Auth Effect (runs once on mount)");
+    console.log("AppContext: Auth useEffect running. CurrentUser ID:", currentUser?.id);
     let isMounted = true;
-    setLoadingAuth(true); // Indicar que estamos verificando el estado de auth
+    // setLoadingAuth(true) was here, but it's better to set it true only once at the start of the provider
 
-    // Esta función se llamará cuando cambie el estado de autenticación o al obtener la sesión inicial
-    const processAuthState = (newUser: User | null, previousUser: User | null | undefined) => {
-        if (!isMounted) return;
+    const handleAuthChange = async (event: string, session: import('@supabase/supabase-js').Session | null) => {
+      if (!isMounted) {
+        console.log("AppContext: handleAuthChange - unmounted, skipping.");
+        return;
+      }
+      console.log("AppContext: onAuthStateChange event:", event, "Session active:", !!session, "Current User in closure:", currentUser?.id);
+      const newUser = session?.user ?? null;
 
-        if (newUser?.id !== previousUser?.id || (!newUser && previousUser) || (newUser && !previousUser)) {
-            console.log(`AppContext: Auth state change detected. New user: ${newUser?.id}, Previous user: ${previousUser?.id}`);
-            setCurrentUser(newUser); // Establecer el nuevo usuario
-
-            if (newUser) {
-                // Si hay un nuevo usuario (login o sesión restaurada para un usuario diferente)
-                console.log(`AppContext: New user ${newUser.id} detected. Resetting profile and setting loadingProfile true.`);
-                setUserProfile(null);    // Limpiar cualquier perfil anterior
-                setLoadingProfile(true); // Indicar que el perfil para este nuevo usuario se está cargando
-            } else {
-                // Si el nuevo usuario es null (logout o sesión no encontrada)
-                console.log("AppContext: User is null (logout/no session). Clearing profile and setting loadingProfile false.");
-                setUserProfile(null);
-                setLoadingProfile(false); // No hay perfil que cargar
-            }
-        } else {
-            console.log("AppContext: Auth state effectively unchanged based on user ID.");
-        }
-        
-        // Marcar loadingAuth como false después del primer procesamiento,
-        // ya sea del listener o de getSession.
-        if (loadingAuth) {
-            setLoadingAuth(false);
-        }
+      if (newUser?.id !== currentUser?.id || (!newUser && currentUser) || (newUser && !currentUser)) {
+        console.log(`AppContext: User state changed via onAuthStateChange. Previous: ${currentUser?.id}, New: ${newUser?.id}. Setting currentUser.`);
+        // This will trigger the data loading useEffect
+        setCurrentUser(newUser); 
+      } else {
+        console.log(`AppContext: User state unchanged via onAuthStateChange (ID: ${currentUser?.id}). Event: ${event}.`);
+      }
+      // Ensure loadingAuth is set to false after the first meaningful event or initial check.
+      if (loadingAuth) {
+        setLoadingAuth(false);
+      }
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-        console.log("AppContext: onAuthStateChange event:", event);
-        // Usamos una función de callback en setCurrentUser para obtener el valor más fresco de currentUser para la comparación
-        // pero para simplificar, pasaremos currentUser directamente a processAuthState,
-        // ya que processAuthState se define en el mismo scope y currentUser es una dependencia del efecto externo.
-        // Lo importante es que processAuthState se llame con el newUser del evento.
-        processAuthState(session?.user ?? null, currentUser);
-    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthChange);
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-        if (!isMounted) return;
-        console.log("AppContext: Initial getSession() result received.");
-        processAuthState(session?.user ?? null, currentUser);
-    }).catch(error => {
-        if (!isMounted) return;
-        console.error("AppContext: Error in getSession():", error);
-        processAuthState(null, currentUser); // Tratar como si no hubiera sesión
-    });
+    // Initial session check
+    if (isMounted && loadingAuth) { // Only run if still loadingAuth to avoid race with onAuthStateChange
+        console.log("AppContext: Attempting initial getSession() as loadingAuth is true.");
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (!isMounted) {
+                console.log("AppContext: getSession callback - unmounted, skipping.");
+                return;
+            }
+            console.log("AppContext: Initial getSession() result:", session);
+            const userFromGetSession = session?.user ?? null;
+
+            // Critical: Only set currentUser if it's genuinely different or if onAuthStateChange hasn't run yet
+            // This check helps prevent redundant setCurrentUser calls if onAuthStateChange already set it.
+            if (userFromGetSession?.id !== currentUser?.id || (!userFromGetSession && currentUser) || (userFromGetSession && !currentUser)) {
+                 console.log("AppContext: Initial session from getSession() requires processing. Setting user.");
+                 setCurrentUser(userFromGetSession); // This will trigger the data loading useEffect
+            }
+            // Always ensure loadingAuth is false after getSession completes,
+            // as this is part of the initial auth resolution.
+            setLoadingAuth(false);
+        }).catch(error => {
+            if (!isMounted) return;
+            console.error("AppContext: Error fetching initial session with getSession():", error);
+            setCurrentUser(null); // This will trigger data clearing via the other useEffect
+            setLoadingAuth(false); // Ensure it's set to false even on error
+        });
+    }
+
 
     return () => {
-        isMounted = false;
-        subscription?.unsubscribe();
-        console.log("AppContext: Auth Effect cleanup.");
+      console.log("AppContext: Unsubscribing from onAuthStateChange (unmount/re-run due to currentUser change).");
+      isMounted = false;
+      subscription?.unsubscribe();
     };
-  }, []); // Vacío para ejecutar solo al montar y desmontar
+  }, [currentUser]); // Re-run this effect if currentUser changes, to re-subscribe with the correct closure.
 
-  // useEffect para cargar datos, depende de currentUser y si la autenticación ya terminó
+  // Effect for loading data based on currentUser
   useEffect(() => {
-    console.log("AppContext: DataLoad useEffect. currentUser:", currentUser?.id, "loadingAuth:", loadingAuth);
-    if (!loadingAuth) { 
+    let isMounted = true;
+    console.log("AppContext: Data loading useEffect triggered. CurrentUser ID:", currentUser?.id, "LoadingAuth:", loadingAuth);
+
+    // Only load data if authentication is no longer loading AND we have a definitive currentUser state
+    if (!loadingAuth) {
         if (currentUser) {
-            // loadingProfile ya fue puesto a true por el efecto de Auth cuando currentUser cambió.
-            console.log("AppContext: DataLoad useEffect - User exists, auth loaded. Calling internalLoadInitialData.");
-            internalLoadInitialData(currentUser);
+            console.log("AppContext: Data loading useEffect - currentUser exists, calling internalLoadInitialData for user:", currentUser.id);
+            if (isMounted) {
+                internalLoadInitialData(currentUser).catch(err => {
+                    if (isMounted) console.error("AppContext: Error during internalLoadInitialData in dedicated effect:", err);
+                });
+            }
         } else {
-            console.log("AppContext: DataLoad useEffect - No user, auth loaded. Clearing data.");
-            internalLoadInitialData(null);
+            console.log("AppContext: Data loading useEffect - currentUser is null, ensuring data is cleared.");
+            if (isMounted) {
+                internalLoadInitialData(null).catch(err => {
+                     if (isMounted) console.error("AppContext: Error during internalLoadInitialData (for null user) in dedicated effect:", err);
+                });
+            }
         }
     } else {
-        console.log("AppContext: DataLoad useEffect - Auth still loading, deferring data load.");
+        console.log("AppContext: Data loading useEffect - Auth is still loading, deferring data load.");
+    }
+    return () => {
+        isMounted = false;
     }
   }, [currentUser, loadingAuth, internalLoadInitialData]);
 
 
-  const addPatient = useCallback(async (
-    patientDataForTable: Omit<Patient, 'id' | 'createdAt' | 'doctorId' | 'user_id'>, 
-    passwordForAuth: string,
-    emailForAuth: string 
-  ): Promise<Patient | undefined> => {
-    const currentAuthUser = currentUser; // Captura el valor estable de currentUser
-    const currentDoctorProfile = userProfile; // Captura el valor estable de userProfile
+  const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
+    const currentAuthUser = currentUser;
+    const currentProfile = userProfile;
 
-    if (!currentAuthUser || currentDoctorProfile?.role !== 'doctor') {
-      toast.error("Solo los doctores pueden añadir pacientes.");
-      throw new Error("User not authorized or not a doctor.");
+    if (!currentAuthUser) {
+        console.warn("AppContext.addNotification: Not authenticated. Cannot create notification.");
+        return undefined;
     }
-
-    let newSignedUpUser: User | null = null;
+    const dataToCreate = {
+      ...notificationData,
+      patientId: notificationData.patientId === undefined ? null : notificationData.patientId,
+      doctorId: notificationData.doctorId !== undefined 
+                  ? notificationData.doctorId 
+                  : (currentProfile?.role === 'doctor' ? currentAuthUser.id : undefined),
+    };
     try {
-      console.log(`AppContext: Attempting to create auth user for patient: ${emailForAuth}`);
-      const signUpCredentials: ExtendedSignUpCredentials = {
-        email: emailForAuth,
-        password: passwordForAuth,
-        options: {
-          data: {
-            name: patientDataForTable.name,
-            role: 'patient',
+      const newNotification = await notificationService.create(dataToCreate as Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>);
+      if (newNotification) {
+        setNotifications(prev => {
+          if (prev.some(n => n.id === newNotification.id)) return prev;
+          return [newNotification, ...prev].sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
+        });
+        if (dataToCreate.type !== 'appointment_reminder_24h' && 
+            dataToCreate.type !== 'abnormal_vital_sign' &&
+            dataToCreate.type !== 'medication_expiring_soon_stock' &&
+            dataToCreate.type !== 'low_medication_adherence') {
+            toast.success(`Notificación "${newNotification.type}" guardada.`);
+        }
+        return newNotification;
+      }
+    } catch (error: any) { 
+      console.error(`AppContext.addNotification: Error creating notification of type ${dataToCreate.type}:`, error);
+      if (dataToCreate.type !== 'appointment_reminder_24h' && 
+          dataToCreate.type !== 'abnormal_vital_sign' &&
+          dataToCreate.type !== 'medication_expiring_soon_stock' &&
+          dataToCreate.type !== 'low_medication_adherence') {
+          toast.error(`Error al guardar notificación: ${error.message || 'Error desconocido'}`); 
+      }
+    }
+    return undefined;
+  }, [currentUser, userProfile]);
+
+  const updateAppointmentFlag = useCallback(async (appointmentId: string, flagUpdates: Partial<Pick<Appointment, 'notificacion_recordatorio_24h_enviada'>>) => {
+    try {
+        const updatedAppointment = await appointmentService.update(appointmentId, flagUpdates);
+        if (updatedAppointment) {
+            setAppointments(prevAppts => prevAppts.map(appt => appt.id === appointmentId ? { ...appt, ...updatedAppointment } : appt));
+        }
+    } catch (error) {
+        console.error(`AppContext: Error actualizando flag de notificación para cita ${appointmentId}:`, error);
+    }
+  }, []);
+
+  const updateMedicationFlag = useCallback(async (medicationId: string, flagUpdates: Partial<Pick<Medication, 'notificacion_stock_expirando_enviada'>>) => {
+    try {
+        const updatedMedication = await medicationService.update(medicationId, flagUpdates);
+        if (updatedMedication) {
+            setMedications(prevMeds => prevMeds.map(med => med.id === medicationId ? { ...med, ...updatedMedication } : med));
+        }
+    } catch (error) {
+        console.error(`AppContext: Error actualizando flag de notificación para medicamento ${medicationId}:`, error);
+    }
+  }, []);
+
+  const generateUpcomingAppointmentReminders = useCallback(async (
+    apptsToCheck: Appointment[],
+    allPatients: Patient[], 
+    currentDoctorProfile: UserProfile | null
+  ) => {
+    if (currentDoctorProfile?.role !== 'doctor' || !apptsToCheck.length || !allPatients.length) return;
+    const now = new Date();
+    const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    for (const appt of apptsToCheck) {
+      if (appt.status === 'scheduled' && !appt.notificacion_recordatorio_24h_enviada) {
+        const appointmentDateTime = new Date(`${appt.date}T${appt.time}`);
+        if (appointmentDateTime > now && appointmentDateTime <= twentyFourHoursLater) {
+          const patient = allPatients.find(p => p.id === appt.patientId);
+          if (patient && currentDoctorProfile) {
+            const message = `Recordatorio automático: Su cita de ${appt.specialty} con ${currentDoctorProfile.name} es mañana, ${new Date(appt.date + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES', { weekday: 'long', month: 'long', day: 'numeric' })} a las ${new Date(`1970-01-01T${appt.time}`).toLocaleTimeString(navigator.language || 'es-ES', { hour: '2-digit', minute: '2-digit', hour12: true })}.`;
+            const reminderData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
+              patientId: patient.id, appointmentId: appt.id, doctorId: appt.doctorId, message,
+              type: 'appointment_reminder_24h', status: 'pending', 
+              sendAt: new Date(appointmentDateTime.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+            };
+            try { 
+              await addNotification(reminderData);
+              await updateAppointmentFlag(appt.id, { notificacion_recordatorio_24h_enviada: true });
+            } catch (e) { console.error("AppContext: Error in generateUpcomingAppointmentReminders for appt:", appt.id, e); }
           }
-          // Considera la configuración de `email_confirm` en Supabase
-          // o usa `emailRedirectTo` si quieres confirmación.
+        }
+      }
+    }
+  }, [addNotification, updateAppointmentFlag]);
+
+  const checkExpiringMedicationsStock = useCallback(async (
+    medsToCheck: Medication[],
+    authUserId: string | undefined,
+    currentDoctorProfile: UserProfile | null
+  ) => {
+    if (currentDoctorProfile?.role !== 'doctor' || !medsToCheck.length || !authUserId) return;
+    const today = new Date();
+    const thirtyDaysLater = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    for (const med of medsToCheck) {
+        if (med.doctorId !== authUserId) continue;
+        if (med.notificacion_stock_expirando_enviada) continue; 
+        const expirationDate = new Date(med.expirationDate);
+        if (expirationDate > today && expirationDate <= thirtyDaysLater) {
+            const medExpirationDateString = new Date(med.expirationDate + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES');
+            const message = `Alerta de inventario: Su medicamento "${med.name}" (Principio Activo: ${med.activeIngredient}) vence el ${medExpirationDateString}.`;
+            const notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'> = {
+                patientId: null, doctorId: authUserId, message: message,
+                type: 'medication_expiring_soon_stock', status: 'pending',
+            };
+            try { 
+              await addNotification(notificationData);
+              await updateMedicationFlag(med.id, { notificacion_stock_expirando_enviada: true });
+            } catch (e) { console.error("AppContext: Error in checkExpiringMedicationsStock for med:", med.id, e); }
+        }
+    }
+  }, [addNotification, updateMedicationFlag]);
+
+
+  useEffect(() => {
+    const allDataLoadedAndUserReady = 
+        !loadingData && !loadingAppointments && !loadingMedications && 
+        !loadingNotifications && !loadingProfile && !loadingVitalSigns && 
+        !loadingDoctors && !loadingMedicationIntakesGlobal &&
+        !loadingAuth && 
+        currentUser && 
+        userProfile?.role === 'doctor' &&
+        notificationChecksDone;
+
+    if (allDataLoadedAndUserReady) {
+      const currentAppointmentsCopy = [...appointments];
+      const currentMedicationsCopy = [...medications];
+      const currentPatientsCopy = [...patients];
+      const runChecks = async () => {
+        if (userProfile?.role === 'doctor' && currentUser) {
+          await generateUpcomingAppointmentReminders(currentAppointmentsCopy, currentPatientsCopy, userProfile);
+          await checkExpiringMedicationsStock(currentMedicationsCopy, currentUser.id, userProfile);
         }
       };
-      const authResponse = await authService.signUp(signUpCredentials);
-
-      if (authResponse.error) {
-        console.error("AppContext.addPatient: Supabase signUp error:", authResponse.error);
-        throw authResponse.error;
-      }
-      if (!authResponse.user) {
-        console.error("AppContext.addPatient: Supabase signUp successful but no user object returned.");
-        throw new Error("User creation in auth failed: no user object returned.");
-      }
-      newSignedUpUser = authResponse.user;
-      console.log(`AppContext.addPatient: Auth user created successfully for patient. User ID: ${newSignedUpUser.id}`);
-      // El trigger on_auth_user_created debería crear la entrada en public.profiles.
-
-    } catch (error: any) {
-      toast.error(`Error creando cuenta de autenticación para paciente: ${error.message || 'Error desconocido'}`);
-      console.error("AppContext.addPatient: Error during Supabase signUp for patient:", error);
-      throw error;
+      runChecks();
     }
+  }, [
+    currentUser, userProfile, 
+    loadingAuth, loadingData, loadingAppointments, loadingMedications, 
+    loadingNotifications, loadingProfile, loadingVitalSigns, loadingDoctors,
+    loadingMedicationIntakesGlobal, 
+    notificationChecksDone,
+    appointments, medications, patients, 
+    generateUpcomingAppointmentReminders, checkExpiringMedicationsStock
+  ]);
 
-    // Crear el registro en la tabla 'patients'
-    if (newSignedUpUser && newSignedUpUser.id) {
-      try {
-        const patientRecordData: Omit<Patient, 'id' | 'createdAt'> = {
-          ...patientDataForTable,
-          user_id: newSignedUpUser.id, // Vincular con el usuario de auth
-          doctorId: currentAuthUser.id, 
-        };
-        
-        console.log("AppContext.addPatient: Attempting to create patient record in 'patients' table:", patientRecordData);
-        const newPatientRecord = await patientService.create(patientRecordData);
 
-        if (newPatientRecord) {
-          setPatients(prev => [...prev, newPatientRecord].sort((a, b) => a.name.localeCompare(b.name)));
-          toast.success(`Paciente ${newPatientRecord.name} registrado y cuenta creada!`);
-          return newPatientRecord;
-        } else {
-          console.error("AppContext.addPatient: Patient record creation failed after auth user creation.");
-          toast.error("Error creando registro del paciente después de la cuenta de autenticación.");
-          // Idealmente, aquí habría lógica de rollback para newSignedUpUser si es posible.
-          throw new Error("Patient record creation failed.");
-        }
-      } catch (error: any) {
-        toast.error(`Error creando registro del paciente: ${error.message || 'Error desconocido'}`);
-        console.error("AppContext.addPatient: Error creating patient record:", error);
-        // Idealmente, aquí habría lógica de rollback para newSignedUpUser si es posible.
-        throw error;
-      }
-    } else {
-      throw new Error("Auth user ID not available for patient record creation.");
+    const addPatient = useCallback(async (patientData: Omit<Patient, 'id' | 'createdAt' | 'doctorId'>): Promise<Patient | undefined> => {
+    if (!currentUser || userProfile?.role !== 'doctor') { 
+      toast.error("Solo los doctores pueden añadir pacientes."); 
+      throw new Error("User not authorized or not a doctor."); 
     }
-  }, [currentUser, userProfile]); // Dependencias: currentUser y userProfile para autorización y doctorId
-                                 // patientService es un import, por lo que es estable si no se redefine.
-
-  // ... (RESTO DE FUNCIONES CRUD Y HELPERS: updatePatient, deletePatient, etc.
-  //      asegúrate de que sus dependencias en useCallback sean correctas,
-  //      principalmente [currentUser, userProfile] si necesitan autorización o IDs.
-  //      Mantén las implementaciones que tenías para estas funciones,
-  //      solo revisa las dependencias de useCallback.)
-
-  const updatePatient = useCallback(async (id: string, updatedData: Partial<Omit<Patient, 'user_id'>>): Promise<void> => {
+    try {
+      const patientDataWithDoctorId: Omit<Patient, 'id' | 'createdAt'> = { ...patientData, doctorId: currentUser.id };
+      const newPatient = await patientService.create(patientDataWithDoctorId);
+      if (newPatient) { 
+        setPatients(prev => [...prev, newPatient].sort((a,b) => a.name.localeCompare(b.name))); 
+        toast.success('Paciente añadido!'); 
+        return newPatient; 
+      }
+    } catch (error: any) { 
+      toast.error(`Error al añadir paciente: ${error.message || 'Error desconocido'}`); 
+      throw error; 
+    }
+    return undefined;
+  }, [currentUser, userProfile]);
+  
+  const updatePatient = useCallback(async (id: string, updatedData: Partial<Patient>): Promise<void> => {
     if (!currentUser || userProfile?.role !== 'doctor') { 
       toast.error("Error de autenticación/Rol de doctor necesario"); 
       throw new Error("User not authorized or not a doctor."); 
@@ -480,7 +573,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [medications]);
     
 
-  const addAppointmentCb = useCallback(async (appointmentData: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'>): Promise<Appointment | undefined> => {
+  const addAppointmentCb = useCallback(async (appointmentData: Omit<Appointment, 'id' | 'notificacion_recordatorio_24h_enviada'>): Promise<Appointment | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { 
       toast.error("Error de autenticación/Rol de doctor necesario"); 
       throw new Error("User not authorized or not a doctor."); 
@@ -490,7 +583,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         doctorId: currentUser.id, 
     };
     try {
-      const newAppointment = await appointmentService.create(dataWithCorrectDoctor);
+      const newAppointment = await appointmentService.create(dataWithCorrectDoctor as Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'>);
       if (newAppointment) {
         setAppointments(prev => [...prev, newAppointment].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
         toast.success('Cita programada!');
@@ -514,7 +607,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return undefined;
   }, [currentUser, userProfile, patients, addNotification]);
 
-  const updateAppointmentCb = useCallback(async (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor'>>) : Promise<Appointment | undefined> => {
+  const updateAppointmentCb = useCallback(async (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id'>>) : Promise<Appointment | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') { 
       toast.error("Error de autenticación/Rol de doctor necesario"); 
       throw new Error("User not authorized or not a doctor."); 
@@ -768,15 +861,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     toast.loading('Cerrando sesión...', { id: 'signout-toast' });
     try {
       const { error } = await authService.signOut();
-      // Limpiar estados locales inmediatamente después de que signOut tenga éxito
-      // Esto es manejado por el useEffect de Auth al detectar currentUser como null.
-      // setCurrentUser(null); // Desencadena el flujo de limpieza de datos
-      // setUserProfile(null);
-      // setLoadingProfile(false); 
-      
       if (error) throw error;
       toast.dismiss('signout-toast');
       toast.success('Sesión cerrada exitosamente!');
+      // No es necesario limpiar estados aquí, el listener onAuthStateChange lo hará
+      // y el ProtectedRoute redirigirá.
     } catch (error: any) {
       toast.dismiss('signout-toast');
       console.error("AppContext: Sign out error:", error);
