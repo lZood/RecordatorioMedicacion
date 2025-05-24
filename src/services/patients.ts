@@ -1,9 +1,9 @@
 // src/services/patients.ts
 import { supabase } from '../lib/supabase';
 import { Patient } from '../types'; 
+import { toast } from 'react-hot-toast';
 
 // Helper para mapear de camelCase (app) a snake_case (DB)
-// Asegúrate de que maneje 'user_id' si lo pasas en camelCase como 'userId'
 const mapPatientToDb = (patientData: Partial<Omit<Patient, 'id' | 'createdAt'>>) => {
   const dbData: { [key: string]: any } = {};
   if (patientData.name !== undefined) dbData.name = patientData.name;
@@ -11,7 +11,6 @@ const mapPatientToDb = (patientData: Partial<Omit<Patient, 'id' | 'createdAt'>>)
   if (patientData.address !== undefined) dbData.address = patientData.address;
   if (patientData.email !== undefined) dbData.email = patientData.email;
   if (patientData.doctorId !== undefined) dbData.doctor_id = patientData.doctorId;
-  // Nuevo campo para vincular con auth.users (a través de profiles si es necesario)
   if ((patientData as any).user_id !== undefined) dbData.user_id = (patientData as any).user_id; 
   return dbData;
 };
@@ -20,55 +19,55 @@ const mapPatientToDb = (patientData: Partial<Omit<Patient, 'id' | 'createdAt'>>)
 const mapDbToPatient = (dbRecord: any): Patient | null => {
   if (!dbRecord) return null;
   const patient: Patient = {
-    id: dbRecord.id, // Este es el ID de la tabla 'patients'
+    id: dbRecord.id,
     name: dbRecord.name,
     phone: dbRecord.phone,
     address: dbRecord.address,
     email: dbRecord.email,
     createdAt: dbRecord.created_at,
     doctorId: dbRecord.doctor_id,
-    user_id: dbRecord.user_id, // Añadir el user_id
+    user_id: dbRecord.user_id,
   };
   return patient;
 };
 
-
 export const patientService = {
-  // La firma de create ahora espera el objeto con user_id y doctorId
   async create(patientDataFromApp: Omit<Patient, 'id' | 'createdAt'>): Promise<Patient | null> {
-    // patientDataFromApp ya debería incluir doctorId y user_id desde AppContext.addPatient
-    if (!patientDataFromApp.doctorId) {
-      console.error("patientService.create: doctorId is required.");
-      throw new Error("doctorId is required when creating a patient.");
-    }
-    if (!(patientDataFromApp as any).user_id) { // user_id es crucial
-        console.error("patientService.create: user_id is required to link patient to auth user.");
-        throw new Error("user_id is required for patient record.");
+    // Verificar que tenemos un usuario autenticado
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      console.error("patientService.create: No authenticated user found:", authError);
+      throw new Error("Authentication required to create patient.");
     }
 
-    const dataToInsert = mapPatientToDb(patientDataFromApp);
+    // Asegurarse de que el doctorId coincida con el ID del usuario autenticado
+    const dataToInsert = mapPatientToDb({
+      ...patientDataFromApp,
+      doctorId: user.id // Forzar que el doctorId sea el ID del usuario autenticado
+    });
+
     console.log("patientService: Insertando paciente (snake_case):", dataToInsert);
 
     const { data, error } = await supabase
       .from('patients')
       .insert(dataToInsert)
-      .select() 
+      .select()
       .single();
       
     if (error) {
       console.error("patientService: Error creando paciente:", error);
-      // Si el error es por unique constraint en user_id (si la pusiste), maneja apropiadamente
-      if (error.code === '23505') { // Código de error para violación de unicidad en PostgreSQL
+      if (error.code === '23505') {
         toast.error("Este usuario ya tiene un registro de paciente asociado.");
+      } else if (error.code === '42501') {
+        toast.error("No tienes permisos para crear pacientes.");
       }
       throw error;
     }
+
     console.log("patientService: Paciente creado, datos crudos de Supabase:", data);
     return data ? mapDbToPatient(data) : null;
   },
 
-  // ... (resto de las funciones getAll, getById, update, delete sin cambios necesarios para este flujo,
-  // pero asegúrate que mapDbToPatient y mapPatientToDb se usen consistentemente si también manejan user_id) ...
   async getAll(): Promise<Patient[]> {
     console.log("patientService.getAll: Fetching patients (RLS will filter)...");
     const { data, error } = await supabase
@@ -103,34 +102,46 @@ export const patientService = {
   },
 
   async update(id: string, patientUpdateData: Partial<Omit<Patient, 'id' | 'createdAt'>>): Promise<Patient | null> {
+    // Verificar que tenemos un usuario autenticado
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      console.error("patientService.update: No authenticated user found:", authError);
+      throw new Error("Authentication required to update patient.");
+    }
+
     const dataToUpdate = mapPatientToDb(patientUpdateData);
-    if ('doctor_id' in dataToUpdate && patientUpdateData.doctorId === undefined) {
-        delete dataToUpdate.doctor_id; 
-    }
-    // No permitir cambiar user_id en una actualización
-    if ('user_id' in dataToUpdate) {
-        delete dataToUpdate.user_id;
-    }
+    // No permitir cambiar el doctor_id o user_id en una actualización
+    delete dataToUpdate.doctor_id;
+    delete dataToUpdate.user_id;
+
     console.log(`patientService.update: Actualizando paciente ID ${id} (snake_case):`, dataToUpdate);
 
     const { data, error } = await supabase
       .from('patients')
       .update(dataToUpdate)
       .eq('id', id)
-      .select() 
+      .select()
       .single();
       
     if (error) {
       console.error(`patientService.update: Error actualizando paciente ID ${id}:`, error);
+      if (error.code === '42501') {
+        toast.error("No tienes permisos para actualizar este paciente.");
+      }
       throw error;
     }
     return data ? mapDbToPatient(data) : null;
   },
 
   async delete(id: string): Promise<void> {
+    // Verificar que tenemos un usuario autenticado
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      console.error("patientService.delete: No authenticated user found:", authError);
+      throw new Error("Authentication required to delete patient.");
+    }
+
     console.log(`patientService.delete: Eliminando paciente ID ${id} (RLS will verify)...`);
-    // Considerar si al eliminar un paciente también se debe eliminar el usuario de auth y su perfil.
-    // Por ahora, solo elimina el registro de 'patients'.
     const { error } = await supabase
       .from('patients')
       .delete()
@@ -138,6 +149,9 @@ export const patientService = {
       
     if (error) {
       console.error(`patientService.delete: Error eliminando paciente ID ${id}:`, error);
+      if (error.code === '42501') {
+        toast.error("No tienes permisos para eliminar este paciente.");
+      }
       throw error;
     }
     console.log(`patientService.delete: Paciente ID ${id} eliminado.`);
