@@ -11,12 +11,16 @@ interface SignUpOptionsData {
 
 export interface ExtendedSignUpCredentials extends SignUpWithPasswordCredentials {
   options?: {
-    data?: SignUpOptionsData;
+    data?: { // Asegúrate que esto pueda incluir name y role
+      name?: string;
+      specialty?: string; // Puede ser null o no estar presente para pacientes
+      role?: 'doctor' | 'patient' | string; // 'patient' es clave aquí
+      [key: string]: any;
+    };
     emailRedirectTo?: string;
     captchaToken?: string;
   };
 }
-
 interface AuthResponse {
   user: User | null;
   session: Session | null;
