@@ -31,7 +31,6 @@ import { notificationService } from '../services/notificationService';
 import toast from 'react-hot-toast';
 import { authService, CreatePatientUserCredentials } from '../services/auth';
 
-// Helper function (sin cambios)
 const isAbnormalVitalSign = (
   vitalSign: VitalSign
 ): { abnormal: boolean; reason: string } => {
@@ -187,8 +186,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
       setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
       setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
       
-      setLoadingProfile(false); // Profile loading is done (no profile)
-      setLoadingData(false);    // General data loading is done (no data)
+      setLoadingProfile(false);
+      setLoadingData(false);
       setLoadingAppointments(false); setLoadingMedications(false); setLoadingDoctors(false);
       setLoadingVitalSigns(false); setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
       setNotificationChecksDone(false);
@@ -196,8 +195,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     }
 
     console.log("AppContext: internalLoadInitialData - Loading profile and data for user:", authUser.id);
-    // setLoadingProfile(true) is handled by the Auth useEffect when currentUser changes
-    setLoadingData(true); // Indicate general data loading starts
+    setLoadingProfile(true); // Explicitly set before fetching profile
+    setLoadingData(true);
 
     const fetchedProfile = await fetchUserProfile(authUser.id);
     setUserProfile(fetchedProfile);
@@ -212,8 +211,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
           resolvedDoctorsData, resolvedNotificationsData, patientsData,
           medicationsData, appointmentsData, vitalSignsData, allMedicationIntakesData
         ] = await Promise.all([
-          profileService.getAllDoctors().catch(e => { console.error("Error fetching all doctors:", e); return []; }),
-          notificationService.getAll().catch(e => { console.error("Error fetching all notifications:", e); return []; }),
+          profileService.getAllDoctors().catch(e => { console.error("Error fetching doctors:", e); return []; }),
+          notificationService.getAll().catch(e => { console.error("Error fetching notifications:", e); return []; }),
           patientService.getAll().catch(e => { console.error("Error fetching patients:", e); return []; }),
           medicationService.getAll().catch(e => { console.error("Error fetching medications:", e); return []; }),
           appointmentService.getAll().catch(e => { console.error("Error fetching appointments:", e); return []; }),
@@ -241,90 +240,103 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
       setLoadingAppointments(false); setLoadingMedications(false); setLoadingDoctors(false);
       setLoadingVitalSigns(false); setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
     }
-    setLoadingData(false); // All data loading attempts are complete
+    setLoadingData(false);
     setNotificationChecksDone(true);
   }, [fetchUserProfile]);
 
-  // Effect for handling authentication state changes
   useEffect(() => {
     console.log("AppContext: Auth Effect (mount)");
-    setLoadingAuth(true); // Initial assumption: auth is loading
-    // setLoadingProfile(true); // Assume profile will also be checked/loaded initially
-
+    setLoadingAuth(true);
     let isMounted = true;
-    let authResolved = false; // To ensure setLoadingAuth(false) is called only once
-
-    const resolveInitialAuth = () => {
-      if (isMounted && !authResolved) {
-        setLoadingAuth(false);
-        authResolved = true;
-        console.log("AppContext: Initial authentication check complete. loadingAuth set to false.");
+  
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!isMounted) return;
+        console.log(`AppContext: onAuthStateChange event: ${event}, User ID: ${session?.user?.id}`);
+        const newUser = session?.user ?? null;
+        
+        setCurrentUser(prevUser => {
+          if (prevUser?.id !== newUser?.id) {
+            console.log(`AppContext: User state changed via onAuthStateChange. New: ${newUser?.id}, Prev: ${prevUser?.id}.`);
+            setUserProfile(null); // Reset profile on user change
+            setLoadingProfile(!!newUser); // Start loading profile if there's a new user
+            return newUser;
+          }
+          return prevUser; // No change in user
+        });
+        
+        // setLoadingAuth(false) will be handled by the data loading effect or if no user
+        if (!session?.user && loadingAuth) {
+            console.log("AppContext: No session user from onAuthStateChange, setting loadingAuth to false.");
+            setLoadingAuth(false);
+        }
       }
-    };
-    
-    const handleUserChange = (newUser: User | null) => {
+    );
+  
+    // Initial session check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
+      console.log(`AppContext: Initial getSession() call. User ID: ${session?.user?.id}`);
+      const newUser = session?.user ?? null;
+
       setCurrentUser(prevUser => {
         if (prevUser?.id !== newUser?.id) {
-          console.log(`AppContext: User state changed. New: ${newUser?.id}, Prev: ${prevUser?.id}.`);
-          setUserProfile(null); // Reset profile
-          setLoadingProfile(!!newUser); // Set loadingProfile true if there's a new user
-          return newUser;
+            console.log(`AppContext: User state changed via getSession. New: ${newUser?.id}, Prev: ${prevUser?.id}.`);
+            setUserProfile(null);
+            setLoadingProfile(!!newUser);
+            return newUser;
         }
         return prevUser;
       });
-    };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!isMounted) return;
-      console.log(`AppContext: onAuthStateChange event: ${event}`);
-      handleUserChange(session?.user ?? null);
-      resolveInitialAuth(); // Auth state determined by listener
-    });
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!isMounted) return;
-      console.log("AppContext: Initial getSession() successful.");
-      handleUserChange(session?.user ?? null);
-      resolveInitialAuth(); // Auth state determined by getSession
+      // Crucially, set loadingAuth to false after the initial check, regardless of user presence.
+      // This unblocks the ProtectedRoute.
+      if (loadingAuth) {
+        console.log("AppContext: Initial getSession() complete, setting loadingAuth to false.");
+        setLoadingAuth(false);
+      }
     }).catch(error => {
       if (!isMounted) return;
       console.error("AppContext: Error in initial getSession():", error);
-      handleUserChange(null);
-      resolveInitialAuth(); // Auth state determined (error)
+      setCurrentUser(null);
+      setUserProfile(null);
+      setLoadingProfile(false);
+      if (loadingAuth) {
+        setLoadingAuth(false);
+      }
     });
-
+  
     return () => {
       isMounted = false;
       subscription?.unsubscribe();
       console.log("AppContext: Auth Effect cleanup (unmount).");
     };
   }, []); // Empty dependency array, runs once
+  
 
-  // Effect for loading profile and data based on currentUser and loadingAuth
   useEffect(() => {
     console.log("AppContext: Data/Profile Load useEffect. loadingAuth:", loadingAuth, "currentUser:", currentUser?.id);
     if (loadingAuth) {
       console.log("AppContext: Data/Profile Load - Auth is still loading, deferring.");
-      return;
+      return; // Wait for auth to resolve
     }
-
+  
     if (currentUser) {
-      // setLoadingProfile(true) was set when currentUser changed in the Auth useEffect
+      // If loadingProfile is true, it means fetchUserProfile (via internalLoadInitialData) will be or is running.
+      // If loadingProfile is false, it means profile fetch is done (or wasn't needed for this user change).
       console.log("AppContext: Data/Profile Load - User exists, auth resolved. Calling internalLoadInitialData.");
       internalLoadInitialData(currentUser);
     } else {
       // No current user, auth is resolved.
       console.log("AppContext: Data/Profile Load - No user, auth resolved. Clearing data via internalLoadInitialData(null).");
-      // setLoadingProfile(false) is handled by internalLoadInitialData(null)
       internalLoadInitialData(null);
     }
-  }, [currentUser, loadingAuth, internalLoadInitialData]); // internalLoadInitialData is memoized
+  }, [currentUser, loadingAuth, internalLoadInitialData]);
+  
 
-  // ... (addNotification, updateAppointmentFlag, updateMedicationFlag, generateUpcomingAppointmentReminders, checkExpiringMedicationsStock) ...
-  // These functions should be fine as they were, ensure addNotification uses the `userProfile` from state
   const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
     const currentAuthUser = currentUser;
-    const currentProfile = userProfile; // Use the state variable
+    const currentProfile = userProfile;
 
     if (!currentAuthUser) {
         console.warn("AppContext.addNotification: Not authenticated. Cannot create notification.");
@@ -362,7 +374,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
       }
     }
     return undefined;
-  }, [currentUser, userProfile]); // Added userProfile to dependencies
+  }, [currentUser, userProfile]);
 
   const updateAppointmentFlag = useCallback(async (appointmentId: string, flagUpdates: Partial<Pick<Appointment, 'notificacion_recordatorio_24h_enviada'>>) => {
     try {
@@ -475,7 +487,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     generateUpcomingAppointmentReminders, checkExpiringMedicationsStock
   ]);
 
-  // CRUD Pacientes (addPatient ya está definido arriba y es un useCallback)
   const addPatient = useCallback(async (patientFullData: CreatePatientFullData): Promise<Patient | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') {
       toast.error("Solo los doctores pueden añadir pacientes.");
@@ -563,7 +574,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     return patients.find(p => p.id === id);
   }, [patients]);
 
-  // CRUD Medicamentos
   const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt' | 'notificacion_stock_expirando_enviada'>): Promise<Medication | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor' || !currentUser.id) {
       toast.error("Solo los doctores pueden añadir medicamentos.");
@@ -624,7 +634,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     return medications.find(m => m.id === id);
   }, [medications]);
 
-  // CRUD Citas
   const addAppointmentCb = useCallback(async (appointmentData: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'>): Promise<Appointment | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor' || !currentUser.id) {
       toast.error("Error de autenticación/Rol de doctor necesario");
@@ -729,7 +738,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     return appointments.find(app => app.id === id);
   }, [appointments]);
 
-  // CRUD Signos Vitales
   const addVitalSign = useCallback(async (vitalSignData: Omit<VitalSign, 'id'>): Promise<VitalSign | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor' || !currentUser.id) {
       toast.error("Autenticación requerida/Rol de doctor necesario");
@@ -809,7 +817,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     }
   }, [currentUser, userProfile]);
 
-  // CRUD Tomas de Medicamentos
   const addMedicationIntake = useCallback(async (intakeData: Omit<MedicationIntake, 'id' | 'createdAt' | 'updatedAt'>): Promise<MedicationIntakeWithMedication | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor') {
       toast.error("Autenticación requerida/Rol de doctor necesario");
@@ -877,7 +884,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     }
   }, [currentUser, userProfile]);
 
-  // CRUD Notificaciones
   const fetchNotificationsForPatient = useCallback(async (patientId: string): Promise<Notification[]> => {
     if (!currentUser || userProfile?.role !== 'doctor') {
       toast.error("Autenticación requerida/Rol de doctor necesario");
@@ -912,15 +918,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     return undefined;
   }, [currentUser, userProfile]);
 
-  // Sign Out
   const signOut = useCallback(async () => {
     toast.loading('Cerrando sesión...', { id: 'signout-toast' });
     try {
       await authService.signOut();
       toast.dismiss('signout-toast');
       toast.success('Sesión cerrada exitosamente!');
-      // No es necesario llamar a setCurrentUser(null) aquí,
-      // el listener onAuthStateChange se encargará de ello.
     } catch (error: any) {
       toast.dismiss('signout-toast');
       console.error("AppContext: Sign out error:", error);
