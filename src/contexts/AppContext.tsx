@@ -86,6 +86,11 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+interface CreatePatientFullData extends Omit<Patient, 'id' | 'createdAt' | 'doctorId'> {
+  loginEmail: string;
+  temporaryPassword: string;
+}
+
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -425,80 +430,72 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     generateUpcomingAppointmentReminders, checkExpiringMedicationsStock
   ]);
 
-  const addPatient = useCallback(async (
-    patientDataForTable: Omit<Patient, 'id' | 'createdAt' | 'doctorId' | 'user_id'>, 
-    passwordForAuth: string,
-    emailForAuth: string 
-  ): Promise<Patient | undefined> => {
-    const currentAuthUser = currentUser;
-    const currentDoctorProfile = userProfile;
+  const addPatient = useCallback(async (patientFullData: CreatePatientFullData): Promise<Patient | undefined> => {
+  if (!currentUser || userProfile?.role !== 'doctor') {
+    toast.error("Solo los doctores pueden añadir pacientes.");
+    throw new Error("User not authorized or not a doctor.");
+  }
 
-    if (!currentAuthUser || currentDoctorProfile?.role !== 'doctor') {
-      toast.error("Solo los doctores pueden añadir pacientes.");
-      throw new Error("User not authorized or not a doctor.");
-    }
-
-    let newSignedUpUser: User | null = null;
-    try {
-      console.log(`AppContext: Attempting to create auth user for patient: ${emailForAuth}`);
-      const signUpCredentials: ExtendedSignUpCredentials = {
-        email: emailForAuth,
-        password: passwordForAuth,
-        options: {
-          data: {
-            name: patientDataForTable.name,
-            role: 'patient',
-          }
+  // 1. Crear la cuenta de autenticación para el paciente
+  let patientAuthUser = null;
+  try {
+    const authResponse = await authService.createPatientUser({
+      email: patientFullData.loginEmail,
+      password: patientFullData.temporaryPassword,
+      options: {
+        data: {
+          name: patientFullData.name, // Puedes guardar el nombre en user_metadata
+          role: 'patient',
         }
-      };
-      const authResponse = await authService.signUp(signUpCredentials);
-
-      if (authResponse.error) {
-        console.error("AppContext.addPatient: Supabase signUp error:", authResponse.error);
-        throw authResponse.error;
       }
-      if (!authResponse.user) {
-        console.error("AppContext.addPatient: Supabase signUp successful but no user object returned.");
-        throw new Error("User creation in auth failed: no user object returned.");
-      }
-      newSignedUpUser = authResponse.user;
-      console.log(`AppContext.addPatient: Auth user created successfully for patient. User ID: ${newSignedUpUser.id}`);
+    });
 
-    } catch (error: any) {
-      toast.error(`Error creando cuenta de autenticación para paciente: ${error.message || 'Error desconocido'}`);
-      console.error("AppContext.addPatient: Error during Supabase signUp for patient:", error);
-      throw error;
+    if (authResponse.error) {
+      throw authResponse.error;
     }
-
-    if (newSignedUpUser && newSignedUpUser.id) {
-      try {
-        const patientRecordData: Omit<Patient, 'id' | 'createdAt'> = {
-          ...patientDataForTable,
-          user_id: newSignedUpUser.id, 
-          doctorId: currentAuthUser.id, 
-        };
-        
-        console.log("AppContext.addPatient: Attempting to create patient record in 'patients' table:", patientRecordData);
-        const newPatientRecord = await patientService.create(patientRecordData);
-
-        if (newPatientRecord) {
-          setPatients(prev => [...prev, newPatientRecord].sort((a, b) => a.name.localeCompare(b.name)));
-          toast.success(`Paciente ${newPatientRecord.name} registrado y cuenta creada!`);
-          return newPatientRecord;
-        } else {
-          console.error("AppContext.addPatient: Patient record creation failed after auth user creation.");
-          toast.error("Error creando registro del paciente después de la cuenta de autenticación.");
-          throw new Error("Patient record creation failed.");
-        }
-      } catch (error: any) {
-        toast.error(`Error creando registro del paciente: ${error.message || 'Error desconocido'}`);
-        console.error("AppContext.addPatient: Error creating patient record:", error);
-        throw error;
-      }
-    } else {
-      throw new Error("Auth user ID not available for patient record creation.");
+    patientAuthUser = authResponse.user;
+    if (!patientAuthUser) {
+      throw new Error("Patient authentication account could not be created.");
     }
-  }, [currentUser, userProfile]);
+    // Opcional: Enviar email de bienvenida o de cambio de contraseña aquí si es necesario.
+    // await supabase.auth.resetPasswordForEmail(patientFullData.loginEmail, { redirectTo: 'URL_DE_CAMBIO_PASS_APP_MOVIL' });
+
+  } catch (authError: any) {
+    toast.error(`Error creando cuenta de paciente: ${authError.message || 'Error desconocido'}`);
+    console.error("AppContext.addPatient: Error creating patient auth user:", authError);
+    return undefined;
+  }
+
+  // 2. Crear el registro en la tabla 'patients'
+  try {
+    // El patientData para patientService.create no necesita las credenciales
+    const patientRecordData: Omit<Patient, 'id' | 'createdAt'> = {
+      name: patientFullData.name,
+      phone: patientFullData.phone,
+      address: patientFullData.address,
+      email: patientFullData.email, // Email de contacto, puede ser diferente al de login
+      // Se añade doctorId automáticamente en el servicio o aquí, asegurando que sea el del doctor actual
+      doctorId: currentUser.id,
+      // Opcional: Si quieres ligar el registro de 'patients' al 'auth.users.id' del paciente:
+      // auth_user_id: patientAuthUser.id, // Necesitarías añadir esta columna a tu tabla 'patients'
+    };
+    const newPatient = await patientService.create(patientRecordData);
+    if (newPatient) {
+      setPatients(prev => [...prev, newPatient].sort((a, b) => a.name.localeCompare(b.name)));
+      toast.success('¡Paciente y cuenta de acceso creados!');
+      return newPatient;
+    }
+  } catch (dbError: any) {
+    toast.error(`Error guardando datos del paciente: ${dbError.message || 'Error desconocido'}`);
+    console.error("AppContext.addPatient: Error creating patient record:", dbError);
+    // Considerar si se debe eliminar el usuario de autenticación si falla la creación del registro del paciente (compensación)
+    if (patientAuthUser) {
+        // Implementar lógica para eliminar el usuario de auth si es necesario (requiere llamada a admin API o Edge Function)
+        console.warn("Compensación necesaria: eliminar usuario de auth", patientAuthUser.id);
+    }
+  }
+  return undefined;
+}, [currentUser, userProfile, /* dependencias de patientService.create */]);
 
   const updatePatient = useCallback(async (id: string, updatedData: Partial<Omit<Patient, 'user_id'>>): Promise<void> => {
     if (!currentUser || userProfile?.role !== 'doctor') { 
@@ -933,3 +930,4 @@ export const useAppContext = () => {
   }
   return context;
 };
+
