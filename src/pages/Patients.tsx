@@ -2,32 +2,34 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import PatientCard from '../components/PatientCard';
-import { UserPlus, Search, X, Lock, Eye, EyeOff } from 'lucide-react'; // Añadir Lock, Eye, EyeOff
+import { UserPlus, Search, X } from 'lucide-react'; // Lock, Eye, EyeOff eliminados
 import { Patient } from '../types';
 import toast from 'react-hot-toast';
 
 const Patients: React.FC = () => {
-  const { 
+  const {
     patients = [],
-    addPatient, 
-    loadingData, 
+    addPatient, // Esta función en AppContext ahora solo debería tomar datos demográficos
+    loadingData,
     loadingProfile,
-    currentUser, 
-    userProfile 
+    currentUser,
+    userProfile
   } = useAppContext();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddPatientModal, setShowAddPatientModal] = useState(false);
 
+  // Estados del formulario para datos demográficos
   const [newPatientName, setNewPatientName] = useState('');
   const [newPatientPhone, setNewPatientPhone] = useState('');
-  const [newPatientEmail, setNewPatientEmail] = useState('');
+  const [newPatientEmail, setNewPatientEmail] = useState(''); // Email informativo
   const [newPatientAddress, setNewPatientAddress] = useState('');
-  // Nuevos estados para la contraseña
-  const [newPatientPassword, setNewPatientPassword] = useState('');
-  const [confirmNewPatientPassword, setConfirmNewPatientPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Se eliminan los estados relacionados con la contraseña del paciente
+  // const [newPatientPassword, setNewPatientPassword] = useState('');
+  // const [confirmNewPatientPassword, setConfirmNewPatientPassword] = useState('');
+  // const [showPassword, setShowPassword] = useState(false);
+  // const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [formSubmitting, setFormSubmitting] = useState(false);
 
@@ -42,10 +44,11 @@ const Patients: React.FC = () => {
     setNewPatientPhone('');
     setNewPatientEmail('');
     setNewPatientAddress('');
-    setNewPatientPassword('');
-    setConfirmNewPatientPassword('');
-    setShowPassword(false);
-    setShowConfirmPassword(false);
+    // Se elimina el reseteo de campos de contraseña
+    // setNewPatientPassword('');
+    // setConfirmNewPatientPassword('');
+    // setShowPassword(false);
+    // setShowConfirmPassword(false);
   };
 
   const handleSavePatient = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -56,40 +59,31 @@ const Patients: React.FC = () => {
         return;
     }
 
-    if (!newPatientName.trim() || !newPatientPhone.trim() || !newPatientEmail.trim() || !newPatientAddress.trim() || !newPatientPassword || !confirmNewPatientPassword) {
-      toast.error("All fields (Name, Phone, Email, Address, Password, Confirm Password) are required.");
+    // Validación solo para campos demográficos
+    if (!newPatientName.trim() || !newPatientPhone.trim() || !newPatientEmail.trim() || !newPatientAddress.trim()) {
+      toast.error("Name, Phone, Email, and Address are required.");
       setFormSubmitting(false);
       return;
     }
     if (!/\S+@\S+\.\S+/.test(newPatientEmail)) {
-        toast.error("Please enter a valid email address.");
+        toast.error("Please enter a valid email address for patient information.");
         setFormSubmitting(false);
         return;
     }
-    if (newPatientPassword.length < 6) {
-      toast.error("Password must be at least 6 characters long.");
-      setFormSubmitting(false);
-      return;
-    }
-    if (newPatientPassword !== confirmNewPatientPassword) {
-      toast.error("Passwords do not match.");
-      setFormSubmitting(false);
-      return;
-    }
+    // Se eliminan validaciones de contraseña
 
     setFormSubmitting(true);
-    // El tipo Omit<Patient, ...> es para los datos que van a la tabla 'patients'.
-    // La contraseña se pasará por separado a la función addPatient del contexto.
-    const patientDataForTable: Omit<Patient, 'id' | 'createdAt' | 'doctorId' | 'user_id'> = { // user_id se añadirá en el backend/servicio
+    const patientDataDemographics: Omit<Patient, 'id' | 'createdAt' | 'doctorId'> = {
       name: newPatientName.trim(),
       phone: newPatientPhone.trim(),
       address: newPatientAddress.trim(),
-      email: newPatientEmail.trim().toLowerCase(), // Guardar email en minúsculas
+      email: newPatientEmail.trim().toLowerCase(), // Email informativo
     };
 
     try {
-      // Pasamos patientDataForTable y la contraseña a la función addPatient del contexto
-      const newPatient = await addPatient(patientDataForTable, newPatientPassword, newPatientEmail.trim().toLowerCase());
+      // La función addPatient en AppContext ahora SÓLO debería tomar los datos demográficos.
+      // El doctorId se añade dentro de la función addPatient en AppContext.
+      const newPatient = await addPatient(patientDataDemographics);
       if (newPatient) {
         setShowAddPatientModal(false);
         resetFormFields();
@@ -98,7 +92,7 @@ const Patients: React.FC = () => {
         // El toast de error ya se maneja en AppContext o en addPatient
       }
     } catch (error) {
-      console.error("PatientsPage: Error saving patient:", error);
+      console.error("PatientsPage: Error saving patient record:", error);
       // El toast de error ya se maneja en AppContext o en addPatient
     } finally {
         setFormSubmitting(false);
@@ -113,7 +107,7 @@ const Patients: React.FC = () => {
         </div>
     );
   }
-  
+ 
   if (currentUser && !loadingProfile && userProfile && userProfile.role !== 'doctor') {
       return (
         <div className="p-6 text-center">
@@ -168,7 +162,7 @@ const Patients: React.FC = () => {
           ))}
         </div>
       ) : (
-        userProfile?.role === 'doctor' && 
+        userProfile?.role === 'doctor' &&
         <div className="text-center py-12">
           <p className="text-gray-500 text-lg">
             {searchTerm ? "No patients found matching your search." : "You have no patients yet. Click 'Add Patient' to get started."}
@@ -178,7 +172,7 @@ const Patients: React.FC = () => {
 
       {showAddPatientModal && userProfile?.role === 'doctor' && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md my-8"> {/* Added my-8 for vertical margin */}
+          <div className="bg-white rounded-lg p-6 w-full max-w-md my-8">
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold">Add New Patient</h2>
                 <button onClick={() => {setShowAddPatientModal(false); resetFormFields();}} className="text-gray-400 hover:text-gray-600">
@@ -192,30 +186,11 @@ const Patients: React.FC = () => {
                        className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
               </div>
               <div>
-                <label htmlFor="patientEmail" className="block text-sm font-medium text-gray-700 mb-1">Email (for login)</label>
+                <label htmlFor="patientEmail" className="block text-sm font-medium text-gray-700 mb-1">Email (Informative)</label>
                 <input type="email" id="patientEmail" value={newPatientEmail} onChange={(e) => setNewPatientEmail(e.target.value)} required
                        className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
               </div>
-              <div>
-                <label htmlFor="patientPassword" className="block text-sm font-medium text-gray-700 mb-1">Temporary Password</label>
-                <div className="relative">
-                    <input type={showPassword ? "text" : "password"} id="patientPassword" value={newPatientPassword} onChange={(e) => setNewPatientPassword(e.target.value)} required minLength={6}
-                           className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
-                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500">
-                        {showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}
-                    </button>
-                </div>
-              </div>
-              <div>
-                <label htmlFor="confirmPatientPassword" className="block text-sm font-medium text-gray-700 mb-1">Confirm Temporary Password</label>
-                 <div className="relative">
-                    <input type={showConfirmPassword ? "text" : "password"} id="confirmPatientPassword" value={confirmNewPatientPassword} onChange={(e) => setConfirmNewPatientPassword(e.target.value)} required minLength={6}
-                           className="w-full rounded-md border border-gray-300 py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
-                    <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500">
-                        {showConfirmPassword ? <EyeOff size={18}/> : <Eye size={18}/>}
-                    </button>
-                </div>
-              </div>
+              {/* Campos de contraseña eliminados del formulario del doctor */}
               <div>
                 <label htmlFor="patientPhone" className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
                 <input type="tel" id="patientPhone" value={newPatientPhone} onChange={(e) => setNewPatientPhone(e.target.value)} required
@@ -233,7 +208,7 @@ const Patients: React.FC = () => {
                 </button>
                 <button type="submit"
                         className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-400" disabled={formSubmitting}>
-                  {formSubmitting ? "Saving..." : "Save Patient"}
+                  {formSubmitting ? "Saving..." : "Save Patient Record"}
                 </button>
               </div>
             </form>
