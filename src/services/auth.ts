@@ -27,6 +27,19 @@ interface AuthResponse {
   error: AuthError | null;
 }
 
+export interface CreatePatientUserCredentials {
+  email: string;
+  password: string;
+  options?: {
+    data?: {
+      name?: string; // Nombre del paciente para metadata si es útil
+      // Otros metadatos específicos del paciente
+      role: 'patient'; // Forzar rol paciente
+    };
+    emailRedirectTo?: string;
+  };
+}
+
 export const authService = {
   async signIn(credentials: SignInWithPasswordCredentials): Promise<AuthResponse> {
     console.log("authService.signIn: called with credentials:", JSON.stringify({email: credentials.email}, null, 2));
@@ -113,3 +126,43 @@ export const authService = {
     return session;
   }
 };
+
+async createPatientUser(credentials: CreatePatientUserCredentials): Promise<AuthResponse> {
+  // Paso 1: Guardar la sesión actual del doctor
+  const { data: { session: doctorSession } } = await supabase.auth.getSession();
+
+  // Paso 2: Intentar crear el usuario paciente
+  const { data: patientAuthData, error: signUpError } = await supabase.auth.signUp({
+    email: credentials.email,
+    password: credentials.password,
+    options: {
+      data: { ...credentials.options?.data, role: 'patient' }, // Asegura rol 'patient'
+      emailRedirectTo: credentials.options?.emailRedirectTo,
+    },
+  });
+
+  // Paso 3: Restaurar la sesión del doctor INMEDIATAMENTE
+  // Esto es crucial si signUp establece una sesión para el nuevo usuario.
+  if (doctorSession) {
+    const { error: sessionError } = await supabase.auth.setSession({
+      access_token: doctorSession.access_token,
+      refresh_token: doctorSession.refresh_token,
+    });
+    if (sessionError) {
+      console.error("authService.createPatientUser: Error restoring doctor session:", sessionError);
+      // Aquí podría ser necesario forzar un logout del doctor o mostrar un error crítico.
+    }
+  } else {
+    // Si no había sesión de doctor, algo está mal, pero continuamos con el resultado del signUp.
+    console.warn("authService.createPatientUser: No doctor session found to restore.");
+  }
+
+  if (signUpError) {
+    console.error("authService.createPatientUser: Supabase signUp error:", signUpError);
+    return { user: null, session: null, error: signUpError };
+  }
+
+  // signUp por defecto devuelve una sesión para el nuevo usuario.
+  // devolvemos el usuario creado, pero la sesión activa debe ser la del doctor.
+  return { user: patientAuthData.user, session: null, error: null }; // Session es null porque no queremos que el frontend la use para el paciente
+}
