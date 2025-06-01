@@ -680,7 +680,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!currentAuthUser) {
         console.warn("AppContext.addNotification: Not authenticated. Cannot create notification.");
         return undefined;
-    }
+    }, [currentUser, userProfile, notificationService, setNotifications]); // Añadir notificationService y setNotifications por completitud, aunque sean estables
+    
     const dataToCreate = {
       ...notificationData,
       patientId: notificationData.patientId === undefined ? null : notificationData.patientId,
