@@ -24,7 +24,9 @@ const Patients: React.FC = () => {
   const [newPatientPhone, setNewPatientPhone] = useState('');
   const [newPatientEmail, setNewPatientEmail] = useState(''); // Email informativo
   const [newPatientAddress, setNewPatientAddress] = useState('');
-
+  const [newPatientLoginEmail, setNewPatientLoginEmail] = useState(''); // Para el email de login del paciente
+  const [newPatientTempPassword, setNewPatientTempPassword] = useState('');
+  const [newPatientConfirmTempPassword, setNewPatientConfirmTempPassword] = useState('');
   // Se eliminan los estados relacionados con la contraseña del paciente
   // const [newPatientPassword, setNewPatientPassword] = useState('');
   // const [confirmNewPatientPassword, setConfirmNewPatientPassword] = useState('');
@@ -42,13 +44,11 @@ const Patients: React.FC = () => {
   const resetFormFields = () => {
     setNewPatientName('');
     setNewPatientPhone('');
-    setNewPatientEmail('');
+    setNewPatientEmail(''); // Este es el email de contacto, puede ser diferente al de login
     setNewPatientAddress('');
-    // Se elimina el reseteo de campos de contraseña
-    // setNewPatientPassword('');
-    // setConfirmNewPatientPassword('');
-    // setShowPassword(false);
-    // setShowConfirmPassword(false);
+    setNewPatientLoginEmail(''); // Nuevo
+    setNewPatientTempPassword(''); // Nuevo
+    setNewPatientConfirmTempPassword(''); // Nuevo
   };
 
   const handleSavePatient = async (e: React.FormEvent<HTMLFormElement>) => {
