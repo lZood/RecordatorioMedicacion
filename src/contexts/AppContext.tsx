@@ -583,7 +583,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
   }, [patients]);
 
  const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt' | 'notificacion_stock_expirando_enviada'>): Promise<Medication | undefined> => {
-datedAt' | 'notificacion_stock_expirando_enviada'>): Promise<Medication | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor' || !currentUser.id) {
       toast.error("Solo los doctores pueden añadir medicamentos.");
       throw new Error("User not authorized, not a doctor, or doctor ID missing.");
