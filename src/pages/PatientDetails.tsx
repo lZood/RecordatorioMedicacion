@@ -28,12 +28,12 @@ const PatientDetails: React.FC = () => {
 
   const {
     getPatientById,
-    medications = [], // Lista de todos los medicamentos disponibles para el selector
+    medications = [],
     fetchMedicationIntakesForPatient,
     // Funciones y estados para MedicationPlan
     addMedicationPlan,
     fetchMedicationPlansForPatient,
-    medicationPlans, // Array de todos los planes cargados (podría ser global o filtrado)
+    medicationPlans = [], // Default a array vacío ya estaba aquí
     loadingMedicationPlans,
     updateMedicationPlanStatus,
     // Estados y funciones existentes
@@ -43,16 +43,16 @@ const PatientDetails: React.FC = () => {
 
   const [patient, setPatient] = useState<Patient | null | undefined>(null);
   const [patientMedicationIntakes, setPatientMedicationIntakes] = useState<MedicationIntakeWithMedication[]>([]);
-  // const [patientVitalSigns, setPatientVitalSigns] = useState<VitalSign[]>([]); // Si tienes esta lógica
+  // const [patientVitalSigns, setPatientVitalSigns] = useState<VitalSign[]>([]);
 
   const [loadingIntakes, setLoadingIntakes] = useState(true);
-  // const [loadingVitals, setLoadingVitals] = useState(true); // Si tienes esta lógica
+  // const [loadingVitals, setLoadingVitals] = useState(true);
 
   // Estados para el MODAL DE CREAR PLAN DE MEDICACIÓN
   const [showCreatePlanModal, setShowCreatePlanModal] = useState(false);
   const [planMedicationId, setPlanMedicationId] = useState<string>('');
   const [planDurationDays, setPlanDurationDays] = useState<string>('7');
-  const [planFrequencyHours, setPlanFrequencyHours] = useState<string>('8'); // Default cada 8 horas
+  const [planFrequencyHours, setPlanFrequencyHours] = useState<string>('8');
   const [planFirstIntakeTime, setPlanFirstIntakeTime] = useState<string>(() => {
     const now = new Date();
     return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -61,11 +61,18 @@ const PatientDetails: React.FC = () => {
   const [planStartDate, setPlanStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [formSubmittingPlan, setFormSubmittingPlan] = useState(false);
 
-  // Filtra los planes de medicación específicamente para el paciente actual
   const currentPatientMedicationPlans = useMemo(() => {
-    if (!patientId) return [];
+    if (!patientId || !medicationPlans) { // <--- MODIFICACIÓN AQUÍ: Añadida verificación explícita para medicationPlans
+      return [];
+    }
+    // Ahora es seguro llamar a .filter ya que medicationPlans no es undefined
     return medicationPlans.filter(plan => plan.patient_id === patientId)
-      .sort((a, b) => new Date(b.created_at!).getTime() - new Date(a.created_at!).getTime());
+      .sort((a, b) => {
+        // Manejar posible null en created_at para el sort
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateB - dateA;
+      });
   }, [medicationPlans, patientId]);
 
 
@@ -76,7 +83,7 @@ const PatientDetails: React.FC = () => {
 
       if (userProfile?.role === 'doctor' && currentPatientData) {
         setLoadingIntakes(true);
-        // setLoadingVitals(true); // Si tienes esta lógica
+        // setLoadingVitals(true);
 
         fetchMedicationPlansForPatient(patientId).catch(err => {
           console.error("Error fetching medication plans on mount:", err);
@@ -91,21 +98,15 @@ const PatientDetails: React.FC = () => {
           })
           .finally(() => setLoadingIntakes(false));
 
-        // Lógica para vitales si la tienes
-        // fetchVitalSignsForPatient(patientId)...
-        // setLoadingVitals(false);
       } else {
         setPatientMedicationIntakes([]);
-        // setPatientVitalSigns([]);
         setLoadingIntakes(false);
-        // setLoadingVitals(false);
       }
     } else {
       setPatient(undefined);
       setLoadingIntakes(false);
-      // setLoadingVitals(false);
     }
-  }, [patientId, getPatientById, userProfile, fetchMedicationIntakesForPatient, fetchMedicationPlansForPatient /*, fetchVitalSignsForPatient */]);
+  }, [patientId, getPatientById, userProfile, fetchMedicationIntakesForPatient, fetchMedicationPlansForPatient]);
 
 
   const resetPlanForm = () => {
@@ -134,18 +135,22 @@ const PatientDetails: React.FC = () => {
     if (isNaN(duration) || duration <= 0) {
       toast.error("La duración debe ser un número positivo."); return;
     }
-    if (isNaN(frequency) || frequency <= 0 || (24 % frequency !== 0 && frequency > 0 && frequency < 24) ) { // Permitir 24/1=24, 24/2=12, etc. y también >24 si es ej. 48h
-        if (frequency > 0 && frequency < 24 && 24 % frequency !== 0) {
-             toast.error("La frecuencia (si es menor a 24h) debe ser un divisor de 24 (ej. 4, 6, 8, 12)."); return;
-        } else if (frequency <=0) {
+    if (isNaN(frequency) || frequency <= 0 || (frequency < 24 && 24 % frequency !== 0) || frequency > 168 /* ej. 7 días */) {
+        if (frequency <=0) {
             toast.error("La frecuencia debe ser un número positivo."); return;
         }
+        if (frequency < 24 && 24 % frequency !== 0) {
+             toast.error("La frecuencia (si es menor a 24h) debe ser un divisor de 24 (ej. 4, 6, 8, 12)."); return;
+        }
+        if (frequency > 168) { // Limitar para evitar demasiadas tomas
+            toast.error("La frecuencia es demasiado alta (máx. 1 toma por hora durante 7 días)."); return;
+        }
     }
-     if (!/^\d{2}:\d{2}(:\d{2})?$/.test(planFirstIntakeTime)) { // Acepta HH:MM o HH:MM:SS
+     if (!/^\d{2}:\d{2}(:\d{2})?$/.test(planFirstIntakeTime)) {
       toast.error("La hora de inicio debe estar en formato HH:MM."); return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(planStartDate)) {
-      toast.error("La fecha de inicio debe estar en formato YYYY-MM-DD."); return;
+      toast.error("La fecha de inicio debe estar en formato yyyy-MM-dd."); return;
     }
 
 
@@ -153,10 +158,10 @@ const PatientDetails: React.FC = () => {
     const planData: MedicationPlanCreationData = {
       patient_id: patient.id,
       medication_id: planMedicationId,
-      start_date: planStartDate, // Usar el estado planStartDate
+      start_date: planStartDate,
       duration_days: duration,
       frequency_hours: frequency,
-      first_intake_time: planFirstIntakeTime.includes(':00') || planFirstIntakeTime.length === 5 ? `${planFirstIntakeTime.slice(0,5)}:00` : planFirstIntakeTime, // Asegurar formato HH:MM:SS
+      first_intake_time: planFirstIntakeTime.length === 5 ? `${planFirstIntakeTime}:00` : planFirstIntakeTime, // Asegurar HH:MM:SS
       instructions: planInstructions.trim() || undefined,
     };
 
@@ -165,44 +170,45 @@ const PatientDetails: React.FC = () => {
       if (newPlan) {
         setShowCreatePlanModal(false);
         resetPlanForm();
-        // Recargar planes y tomas para este paciente para reflejar los cambios
         if (patientId) {
           toast.info("Actualizando lista de planes y tomas...");
+          // fetchMedicationPlansForPatient ya actualiza el estado en AppContext,
+          // lo que debería hacer que currentPatientMedicationPlans se recalcule.
           await fetchMedicationPlansForPatient(patientId);
+          // Recargar las tomas individuales también, ya que se habrán generado nuevas
           await fetchMedicationIntakesForPatient(patientId)
             .then(intakes => setPatientMedicationIntakes(intakes.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time))))
-            .finally(() => setLoadingIntakes(false));
+            .finally(() => setLoadingIntakes(false)); // Asegurar que loadingIntakes se actualice
         }
       }
     } catch (error) {
       console.error("PatientDetails: Error creando plan de medicación:", error);
-      // El toast de error ya se maneja en AppContext o en el servicio
     } finally {
       setFormSubmittingPlan(false);
     }
   };
   
   const handleTogglePlanStatus = async (plan: MedicationPlan) => {
-    if (!currentUser || userProfile?.role !== 'doctor') return;
+    if (!currentUser || userProfile?.role !== 'doctor' || !patientId) return;
     const newStatus = !plan.is_active;
-    if (window.confirm(`¿Está seguro de que desea ${newStatus ? 'ACTIVAR' : 'DESACTIVAR'} este plan de medicación? ${!newStatus ? 'Las tomas ya generadas no se eliminarán, pero podría afectar futuras notificaciones.' : '' }`)) {
+    if (window.confirm(`¿Está seguro de que desea ${newStatus ? 'ACTIVAR' : 'DESACTIVAR'} este plan de medicación? ${!newStatus ? 'Las tomas ya generadas no se eliminarán.' : '' }`)) {
       try {
         await updateMedicationPlanStatus(plan.id, newStatus);
-        // La lista de planes se actualiza en AppContext, lo que debería re-renderizar esta sección
-        // Forzar recarga de planes para este paciente por si acaso
-         if (patientId) {
-            await fetchMedicationPlansForPatient(patientId);
-         }
+        // fetchMedicationPlansForPatient ya actualiza el estado en AppContext,
+        // lo que debería hacer que currentPatientMedicationPlans se recalcule.
+        await fetchMedicationPlansForPatient(patientId); 
       } catch (error) {
         toast.error("Error al actualizar el estado del plan.");
       }
     }
   };
+  
+  // ... (resto del JSX del componente, que usa currentPatientMedicationPlans)
+  // Asegúrate de que el JSX que itera sobre currentPatientMedicationPlans
+  // también maneje el caso de que sea un array vacío si no hay planes.
 
-  // ... (adherenceRate, loading/error/no patient JSX)
   if (patient === null && patientId) { return <div className="flex justify-center items-center h-screen">Cargando detalles del paciente...</div>; }
   if (patient === undefined) { return <div className="text-center py-10">Paciente no encontrado o no tienes acceso. <Link to="/patients" className="text-indigo-600 hover:underline">Volver a Pacientes</Link></div>; }
-
 
   return (
     <div className="space-y-8 p-4 md:p-6 max-w-5xl mx-auto">
@@ -214,10 +220,10 @@ const PatientDetails: React.FC = () => {
                 <div className="flex items-center text-gray-500 text-sm mt-1">
                     <Mail size={16} className="mr-2"/> {patient.email}
                     <span className="mx-2">|</span>
-                    <Phone size={16} className="mr-2"/> {patient.phone}
+                    <Phone size={16} className="mr-2"/> {patient.phone || 'N/A'}
                 </div>
                 <div className="flex items-center text-gray-500 text-sm mt-1">
-                    <MapPin size={16} className="mr-2"/> {patient.address}
+                    <MapPin size={16} className="mr-2"/> {patient.address || 'N/A'}
                 </div>
             </div>
             <Link to="/patients" className="flex items-center text-indigo-600 hover:text-indigo-800 text-sm font-medium self-start sm:self-center whitespace-nowrap">
@@ -283,7 +289,6 @@ const PatientDetails: React.FC = () => {
       <div className="bg-white rounded-xl shadow-lg p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-700 flex items-center"><ListChecks size={24} className="mr-3 text-indigo-600"/>Tomas de Medicación Programadas</h2>
-          {/* El botón de "Add Medication Intake" individual podría eliminarse si todos se generan por planes */}
         </div>
         {loadingIntakes ? (<div className="text-center py-4"><p className="text-gray-500">Cargando tomas...</p></div>) :
          patientMedicationIntakes.length > 0 ? (
@@ -304,7 +309,7 @@ const PatientDetails: React.FC = () => {
             ))}
           </div>
         ) : (
-          <p className="text-gray-500 py-4">No hay tomas de medicación programadas (generadas por planes) para este paciente.</p>
+          <p className="text-gray-500 py-4">No hay tomas de medicación programadas para este paciente.</p>
         )}
       </div>
 
