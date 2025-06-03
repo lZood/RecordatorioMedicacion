@@ -15,6 +15,7 @@ import {
   MedicationIntake,
   UserProfile,
   Notification,
+  MedicationPlan,
 } from '../types';
 import {
   MedicationIntakeWithMedication,
@@ -28,6 +29,7 @@ import { appointmentService } from '../services/appointments';
 import { vitalSignService } from '../services/vitalSigns';
 import { profileService } from '../services/profiles';
 import { notificationService } from '../services/notificationService';
+import { medicationPlanService } from '../services/medicationPlanService';
 import toast from 'react-hot-toast';
 import { authService, CreatePatientUserCredentials } from '../services/auth';
 
@@ -135,6 +137,15 @@ interface AppContextType {
     status: Notification['status']
   ) => Promise<Notification | undefined>;
 
+  medicationPlans: MedicationPlan[];
+  loadingMedicationPlans: boolean;
+  addMedicationPlan: (
+    planData: Omit<MedicationPlan, 'id' | 'createdAt' | 'updatedAt' | 'is_active'>,
+    patientId: string
+  ) => Promise<MedicationPlan | undefined>;
+  fetchMedicationPlansForPatient: (patientId: string) => Promise<MedicationPlan[]>;
+  updateMedicationPlanStatus: (planId: string, isActive: boolean) => Promise<MedicationPlan | undefined>;
+
   signOut: () => Promise<void>;
 }
 
@@ -156,6 +167,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
   const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntakeWithMedication[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [medicationPlans, setMedicationPlans] = useState<MedicationPlan[]>([]);
 
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [loadingMedications, setLoadingMedications] = useState(true);
@@ -163,6 +175,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
   const [loadingVitalSigns, setLoadingVitalSigns] = useState(true);
   const [loadingMedicationIntakesGlobal, setLoadingMedicationIntakesGlobal] = useState(true);
   const [loadingNotifications, setLoadingNotifications] = useState(true);
+  const [loadingMedicationPlans, setLoadingMedicationPlans] = useState(true);
   const [notificationChecksDone, setNotificationChecksDone] = useState(false);
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
@@ -184,32 +197,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
       console.log("AppContext: internalLoadInitialData - No authUser, clearing data and states.");
       setUserProfile(null);
       setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
-      setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
+      setVitalSigns([]); setMedicationIntakes([]); setNotifications([]); setMedicationPlans([]);
       
       setLoadingProfile(false);
       setLoadingData(false);
       setLoadingAppointments(false); setLoadingMedications(false); setLoadingDoctors(false);
       setLoadingVitalSigns(false); setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
+      setLoadingMedicationPlans(false);
       setNotificationChecksDone(false);
       return;
     }
 
     console.log("AppContext: internalLoadInitialData - Loading profile and data for user:", authUser.id);
-    setLoadingProfile(true); // Explicitly set before fetching profile
+    setLoadingProfile(true);
     setLoadingData(true);
 
     const fetchedProfile = await fetchUserProfile(authUser.id);
     setUserProfile(fetchedProfile);
-    setLoadingProfile(false); // Profile fetch attempt is complete
+    setLoadingProfile(false);
 
     if (fetchedProfile && fetchedProfile.role === 'doctor') {
       console.log("AppContext: internalLoadInitialData - User is a doctor, fetching doctor-specific data.");
       setLoadingAppointments(true); setLoadingMedications(true); setLoadingDoctors(true);
       setLoadingVitalSigns(true); setLoadingMedicationIntakesGlobal(true); setLoadingNotifications(true);
+      setLoadingMedicationPlans(true);
       try {
         const [
           resolvedDoctorsData, resolvedNotificationsData, patientsData,
-          medicationsData, appointmentsData, vitalSignsData, allMedicationIntakesData
+          medicationsData, appointmentsData, vitalSignsData, allMedicationIntakesData,
+          medicationPlansData
         ] = await Promise.all([
           profileService.getAllDoctors().catch(e => { console.error("Error fetching doctors:", e); return []; }),
           notificationService.getAll().catch(e => { console.error("Error fetching notifications:", e); return []; }),
@@ -217,7 +233,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
           medicationService.getAll().catch(e => { console.error("Error fetching medications:", e); return []; }),
           appointmentService.getAll().catch(e => { console.error("Error fetching appointments:", e); return []; }),
           vitalSignService.getAll().catch(e => { console.error("Error fetching vital signs:", e); return []; }),
-          medicationIntakeService.getAllIntakes().catch(e => { console.error("Error fetching all medication intakes:", e); return []; })
+          medicationIntakeService.getAllIntakes().catch(e => { console.error("Error fetching all medication intakes:", e); return []; }),
+          medicationPlanService.getPlansForDoctor(authUser.id).catch(e => { console.error("Error fetching medication plans:", e); return []; })
         ]);
         setDoctors(resolvedDoctorsData || []);
         setNotifications(resolvedNotificationsData || []);
@@ -226,19 +243,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
         setAppointments(appointmentsData || []);
         setVitalSigns(vitalSignsData || []);
         setMedicationIntakes(allMedicationIntakesData || []);
+        setMedicationPlans(medicationPlansData || []);
       } catch (error) {
         console.error("AppContext: Error loading initial data sets for doctor:", error);
         toast.error("No se pudieron cargar todos los datos de la aplicación.");
       } finally {
         setLoadingAppointments(false); setLoadingMedications(false); setLoadingDoctors(false);
         setLoadingVitalSigns(false); setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
+        setLoadingMedicationPlans(false);
       }
     } else {
       console.log(`AppContext: internalLoadInitialData - User role is '${fetchedProfile?.role}', not 'doctor', or profile fetch failed. Clearing non-profile data.`);
       setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
-      setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
+      setVitalSigns([]); setMedicationIntakes([]); setNotifications([]); setMedicationPlans([]);
       setLoadingAppointments(false); setLoadingMedications(false); setLoadingDoctors(false);
       setLoadingVitalSigns(false); setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
+      setLoadingMedicationPlans(false);
     }
     setLoadingData(false);
     setNotificationChecksDone(true);
@@ -258,14 +278,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
         setCurrentUser(prevUser => {
           if (prevUser?.id !== newUser?.id) {
             console.log(`AppContext: User state changed via onAuthStateChange. New: ${newUser?.id}, Prev: ${prevUser?.id}.`);
-            setUserProfile(null); // Reset profile on user change
-            setLoadingProfile(!!newUser); // Start loading profile if there's a new user
+            setUserProfile(null);
+            setLoadingProfile(!!newUser);
             return newUser;
           }
-          return prevUser; // No change in user
+          return prevUser;
         });
         
-        // setLoadingAuth(false) will be handled by the data loading effect or if no user
         if (!session?.user && loadingAuth) {
             console.log("AppContext: No session user from onAuthStateChange, setting loadingAuth to false.");
             setLoadingAuth(false);
@@ -273,7 +292,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
       }
     );
   
-    // Initial session check
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!isMounted) return;
       console.log(`AppContext: Initial getSession() call. User ID: ${session?.user?.id}`);
@@ -289,8 +307,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
         return prevUser;
       });
 
-      // Crucially, set loadingAuth to false after the initial check, regardless of user presence.
-      // This unblocks the ProtectedRoute.
       if (loadingAuth) {
         console.log("AppContext: Initial getSession() complete, setting loadingAuth to false.");
         setLoadingAuth(false);
@@ -311,28 +327,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
       subscription?.unsubscribe();
       console.log("AppContext: Auth Effect cleanup (unmount).");
     };
-  }, []); // Empty dependency array, runs once
-  
+  }, []);
 
   useEffect(() => {
     console.log("AppContext: Data/Profile Load useEffect. loadingAuth:", loadingAuth, "currentUser:", currentUser?.id);
     if (loadingAuth) {
       console.log("AppContext: Data/Profile Load - Auth is still loading, deferring.");
-      return; // Wait for auth to resolve
+      return;
     }
   
     if (currentUser) {
-      // If loadingProfile is true, it means fetchUserProfile (via internalLoadInitialData) will be or is running.
-      // If loadingProfile is false, it means profile fetch is done (or wasn't needed for this user change).
       console.log("AppContext: Data/Profile Load - User exists, auth resolved. Calling internalLoadInitialData.");
       internalLoadInitialData(currentUser);
     } else {
-      // No current user, auth is resolved.
       console.log("AppContext: Data/Profile Load - No user, auth resolved. Clearing data via internalLoadInitialData(null).");
       internalLoadInitialData(null);
     }
   }, [currentUser, loadingAuth, internalLoadInitialData]);
-  
 
   const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
     const currentAuthUser = currentUser;
@@ -455,7 +466,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     }
   }, [addNotification, updateMedicationFlag]);
 
-
   useEffect(() => {
     const allDataLoadedAndUserReady =
         !loadingAuth && !loadingData && !loadingProfile &&
@@ -571,395 +581,4 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
   }, [currentUser, userProfile]);
 
   const getPatientById = useCallback((id: string): Patient | undefined => {
-    return patients.find(p => p.id === id);
-  }, [patients]);
-
-  const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt' | 'notificacion_stock_expirando_enviada'>): Promise<Medication | undefined> => {
-    if (!currentUser || userProfile?.role !== 'doctor' || !currentUser.id) {
-      toast.error("Solo los doctores pueden añadir medicamentos.");
-      throw new Error("User not authorized, not a doctor, or doctor ID missing.");
-    }
-    try {
-      const medicationDataWithDoctorId: Omit<Medication, 'id' | 'createdAt' | 'updatedAt'> = {
-        ...medicationData,
-        doctorId: currentUser.id,
-        notificacion_stock_expirando_enviada: false
-      };
-      const newMed = await medicationService.create(medicationDataWithDoctorId as any);
-      if (newMed) {
-        setMedications(prev => [...prev, newMed].sort((a,b) => a.name.localeCompare(b.name)));
-        toast.success('Medicamento añadido!');
-        return newMed;
-      }
-    } catch (error: any) {
-      toast.error(`Error al añadir medicamento: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-    return undefined;
-  }, [currentUser, userProfile]);
-
-  const updateMedicationCb = useCallback(async (id: string, updatedData: Partial<Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt'>>) => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Error de autenticación/Rol de doctor necesario");
-      throw new Error("User not authorized or not a doctor.");
-    }
-    try {
-        const updated = await medicationService.update(id, updatedData);
-        if (updated) {
-            setMedications(prev => prev.map(m => m.id === id ? {...m, ...updated} : m).sort((a,b) => a.name.localeCompare(b.name)));
-            toast.success('Medicamento actualizado!');
-        }
-    } catch (error: any) {
-      toast.error(`Error al actualizar medicamento: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-  }, [currentUser, userProfile]);
-
-  const deleteMedication = useCallback(async (id: string) => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Error de autenticación/Rol de doctor necesario");
-      throw new Error("User not authorized or not a doctor.");
-    }
-    try {
-        await medicationService.delete(id);
-        setMedications(prev => prev.filter(m => m.id !== id));
-        toast.success('Medicamento eliminado!');
-    } catch (error: any) {
-      toast.error(`Error al eliminar medicamento: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-  }, [currentUser, userProfile]);
-
-  const getMedicationById = useCallback((id: string): Medication | undefined => {
-    return medications.find(m => m.id === id);
-  }, [medications]);
-
-  const addAppointmentCb = useCallback(async (appointmentData: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'>): Promise<Appointment | undefined> => {
-    if (!currentUser || userProfile?.role !== 'doctor' || !currentUser.id) {
-      toast.error("Error de autenticación/Rol de doctor necesario");
-      throw new Error("User not authorized or not a doctor.");
-    }
-    const dataWithCorrectDoctor: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor' | 'notificacion_recordatorio_24h_enviada'> = {
-        ...appointmentData,
-        doctorId: currentUser.id,
-    };
-    try {
-      const newAppointment = await appointmentService.create(dataWithCorrectDoctor);
-      if (newAppointment) {
-        setAppointments(prev => [...prev, newAppointment].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
-        toast.success('Cita programada!');
-        const patient = patients.find(p => p.id === newAppointment.patientId);
-        if (patient) {
-            await addNotification({
-                patientId: patient.id,
-                appointmentId: newAppointment.id,
-                doctorId: newAppointment.doctorId,
-                message: `Se ha programado una nueva cita de ${newAppointment.specialty} para usted el ${new Date(newAppointment.date + 'T00:00:00').toLocaleDateString()} a las ${new Date(`1970-01-01T${newAppointment.time}`).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}.`,
-                type: 'appointment_created',
-                status: 'pending',
-            });
-        }
-        return newAppointment;
-      }
-    } catch (error: any) {
-      toast.error(`Error al programar cita: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-    return undefined;
-  }, [currentUser, userProfile, patients, addNotification]);
-
-  const updateAppointmentCb = useCallback(async (id: string, appointmentUpdateData: Partial<Omit<Appointment, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'doctor'>>) : Promise<Appointment | undefined> => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Error de autenticación/Rol de doctor necesario");
-      throw new Error("User not authorized or not a doctor.");
-    }
-    try {
-      const oldAppointment = appointments.find(app => app.id === id);
-      const updatedApp = await appointmentService.update(id, appointmentUpdateData);
-      if (updatedApp) {
-         setAppointments(prev => prev.map(app => (app.id === id ? updatedApp : app)).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.time.localeCompare(b.time)));
-         toast.success('Cita actualizada!');
-         if (oldAppointment && (oldAppointment.date !== updatedApp.date || oldAppointment.time !== updatedApp.time || oldAppointment.status !== updatedApp.status)) {
-            const patient = patients.find(p => p.id === updatedApp.patientId);
-            if (patient) {
-                let message = `Su cita de ${updatedApp.specialty} ha sido actualizada. Nueva fecha: ${new Date(updatedApp.date + 'T00:00:00').toLocaleDateString()} a las ${new Date(`1970-01-01T${updatedApp.time}`).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}.`;
-                if (updatedApp.status === 'cancelled') {
-                    message = `Su cita de ${updatedApp.specialty} del ${new Date(updatedApp.date + 'T00:00:00').toLocaleDateString()} ha sido cancelada.`;
-                }
-                 await addNotification({
-                    patientId: patient.id,
-                    appointmentId: updatedApp.id,
-                    doctorId: updatedApp.doctorId,
-                    message,
-                    type: updatedApp.status === 'cancelled' ? 'appointment_cancelled_by_doctor' : 'appointment_updated',
-                    status: 'pending',
-                });
-            }
-         }
-         return updatedApp;
-      }
-    } catch (error: any) {
-      toast.error(`Error al actualizar cita: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-    return undefined;
-  }, [currentUser, userProfile, appointments, patients, addNotification]);
-
-  const deleteAppointmentCb = useCallback(async (id: string): Promise<void> => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Error de autenticación/Rol de doctor necesario");
-      throw new Error("User not authorized or not a doctor.");
-    }
-    try {
-      const apptToDelete = appointments.find(app => app.id === id);
-      if (apptToDelete && apptToDelete.status !== 'cancelled') {
-        const patient = patients.find(p => p.id === apptToDelete.patientId);
-        if (patient) {
-            await addNotification({
-                patientId: patient.id,
-                appointmentId: apptToDelete.id,
-                doctorId: apptToDelete.doctorId,
-                message: `Su cita de ${apptToDelete.specialty} del ${new Date(apptToDelete.date + 'T00:00:00').toLocaleDateString()} ha sido cancelada.`,
-                type: 'appointment_cancelled_by_doctor',
-                status: 'pending',
-            });
-        }
-      }
-      await appointmentService.delete(id);
-      setAppointments(prev => prev.filter(app => app.id !== id));
-      toast.success('Cita eliminada!');
-    } catch (error: any) {
-      toast.error(`Error al eliminar cita: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-  }, [currentUser, userProfile, appointments, patients, addNotification]);
-
-  const getAppointmentById = useCallback((id: string): Appointment | undefined => {
-    return appointments.find(app => app.id === id);
-  }, [appointments]);
-
-  const addVitalSign = useCallback(async (vitalSignData: Omit<VitalSign, 'id'>): Promise<VitalSign | undefined> => {
-    if (!currentUser || userProfile?.role !== 'doctor' || !currentUser.id) {
-      toast.error("Autenticación requerida/Rol de doctor necesario");
-      throw new Error("Not authorized.");
-    }
-    try {
-      const newVitalSign = await vitalSignService.create(vitalSignData);
-      if (newVitalSign) {
-        setVitalSigns(prev => [...prev, newVitalSign].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time) ));
-        toast.success('Signo vital registrado!');
-
-        const abnormalityCheck = isAbnormalVitalSign(newVitalSign);
-        if (abnormalityCheck.abnormal) {
-          const patient = patients.find(p => p.id === newVitalSign.patientId);
-          await addNotification({
-            patientId: newVitalSign.patientId,
-            doctorId: currentUser.id,
-            message: `Alerta Signo Vital: ${patient?.name || 'Paciente desconocido'} registró ${newVitalSign.type} ${abnormalityCheck.reason}.`,
-            type: 'abnormal_vital_sign',
-            status: 'pending'
-          });
-          toast.warn(`Signo vital anormal detectado para ${patient?.name || 'Paciente desconocido'}! Notificación generada.`);
-        }
-        return newVitalSign;
-      }
-    } catch (error: any) {
-      toast.error(`Error al registrar signo vital: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-    return undefined;
-  }, [currentUser, userProfile, patients, addNotification]);
-
-  const updateVitalSign = useCallback(async (id: string, vitalSignUpdateData: Partial<Omit<VitalSign, 'id'>>) => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Autenticación requerida/Rol de doctor necesario");
-      throw new Error("Not authorized.");
-    }
-    try {
-      const updatedVitalSign = await vitalSignService.update(id, vitalSignUpdateData);
-      if (updatedVitalSign) {
-        setVitalSigns(prev => prev.map(vs => (vs.id === id ? { ...vs, ...updatedVitalSign } : vs))
-                                 .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time) ));
-        toast.success('Signo vital actualizado!');
-      }
-    } catch (error: any) {
-      toast.error(`Error al actualizar signo vital: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-  }, [currentUser, userProfile]);
-
-  const deleteVitalSign = useCallback(async (id: string): Promise<void> => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Autenticación requerida/Rol de doctor necesario");
-      throw new Error("Not authorized.");
-    }
-    try {
-      await vitalSignService.delete(id);
-      setVitalSigns(prev => prev.filter(vs => vs.id !== id));
-      toast.success('Signo vital eliminado!');
-    } catch (error: any) {
-      toast.error(`Error al eliminar signo vital: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-  }, [currentUser, userProfile]);
-
-  const fetchVitalSignsForPatient = useCallback(async (patientId: string): Promise<VitalSign[]> => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Autenticación requerida/Rol de doctor necesario");
-      throw new Error("Not authorized.");
-    }
-    try {
-        const data = await vitalSignService.getByPatient(patientId);
-        return data;
-    } catch (error: any) {
-      toast.error(`Error al obtener signos vitales: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-  }, [currentUser, userProfile]);
-
-  const addMedicationIntake = useCallback(async (intakeData: Omit<MedicationIntake, 'id' | 'createdAt' | 'updatedAt'>): Promise<MedicationIntakeWithMedication | undefined> => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Autenticación requerida/Rol de doctor necesario");
-      throw new Error("Not authorized.");
-    }
-    try {
-      const newIntake = await medicationIntakeService.create(intakeData);
-      if (newIntake) {
-        setMedicationIntakes(prev => [newIntake, ...prev].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time)));
-        toast.success('Toma de medicamento registrada!');
-        return newIntake;
-      }
-    } catch (error: any) {
-      toast.error(`Error al añadir toma: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-    return undefined;
-  }, [currentUser, userProfile]);
-
-  const updateMedicationIntake = useCallback(async (id: string, intakeUpdateData: Partial<Omit<MedicationIntake, 'id' | 'patientId' | 'medicationId' | 'createdAt' | 'updatedAt'>>): Promise<MedicationIntakeWithMedication | undefined> => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Autenticación requerida/Rol de doctor necesario");
-      throw new Error("Not authorized.");
-    }
-    try {
-      const updatedIntake = await medicationIntakeService.update(id, intakeUpdateData);
-      if (updatedIntake) {
-        setMedicationIntakes(prev => prev.map(i => i.id === id ? updatedIntake : i).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time)));
-        toast.success('Toma de medicamento actualizada!');
-        return updatedIntake;
-      }
-    } catch (error: any) {
-      toast.error(`Error al actualizar toma: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-    return undefined;
-  }, [currentUser, userProfile]);
-
-  const deleteMedicationIntake = useCallback(async (id: string): Promise<void> => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Autenticación requerida/Rol de doctor necesario");
-      throw new Error("Not authorized.");
-    }
-    try {
-      await medicationIntakeService.delete(id);
-      setMedicationIntakes(prev => prev.filter(i => i.id !== id));
-      toast.success('Toma de medicamento eliminada!');
-    } catch (error: any) {
-      toast.error(`Error al eliminar toma: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-  }, [currentUser, userProfile]);
-
-  const fetchMedicationIntakesForPatient = useCallback(async (patientId: string): Promise<MedicationIntakeWithMedication[]> => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Autenticación requerida/Rol de doctor necesario");
-      throw new Error("Not authorized.");
-    }
-    try {
-      const data = await medicationIntakeService.getByPatient(patientId);
-      return data;
-    } catch (error: any) {
-      toast.error(`Error al obtener tomas: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-  }, [currentUser, userProfile]);
-
-  const fetchNotificationsForPatient = useCallback(async (patientId: string): Promise<Notification[]> => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Autenticación requerida/Rol de doctor necesario");
-      throw new Error("Not authorized.");
-    }
-    try {
-      const data = await notificationService.getByPatient(patientId);
-      return data;
-    } catch (error: any) {
-      toast.error(`Error al obtener notificaciones: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-  }, [currentUser, userProfile]);
-
-  const updateNotificationStatus = useCallback(async (notificationId: string, status: Notification['status']): Promise<Notification | undefined> => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-      toast.error("Autenticación requerida/Rol de doctor necesario");
-      throw new Error("Not authorized.");
-    }
-    try {
-      const updatedNotification = await notificationService.update(notificationId, { status });
-      if (updatedNotification) {
-        setNotifications(prev => prev.map(n => n.id === notificationId ? updatedNotification : n)
-                                  .sort((a,b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()));
-        toast.success(`Notificación marcada como ${status}.`);
-        return updatedNotification;
-      }
-    } catch (error: any) {
-      toast.error(`Error al actualizar estado de notificación: ${error.message || 'Error desconocido'}`);
-      throw error;
-    }
-    return undefined;
-  }, [currentUser, userProfile]);
-
-  const signOut = useCallback(async () => {
-    toast.loading('Cerrando sesión...', { id: 'signout-toast' });
-    try {
-      await authService.signOut();
-      toast.dismiss('signout-toast');
-      toast.success('Sesión cerrada exitosamente!');
-    } catch (error: any) {
-      toast.dismiss('signout-toast');
-      console.error("AppContext: Sign out error:", error);
-      toast.error(`Error al cerrar sesión: ${error.message || 'Error desconocido'}`);
-    }
-  }, []);
-
-  const value: AppContextType = {
-    currentUser, userProfile, loadingAuth, loadingData, loadingProfile,
-    patients, addPatient, updatePatient, deletePatient, getPatientById,
-    medications, loadingMedications,
-    addMedication, updateMedication: updateMedicationCb,
-    deleteMedication, getMedicationById,
-    appointments, doctors, loadingAppointments, loadingDoctors,
-    addAppointment: addAppointmentCb, updateAppointment: updateAppointmentCb,
-    deleteAppointment: deleteAppointmentCb, getAppointmentById,
-    vitalSigns, loadingVitalSigns, addVitalSign, updateVitalSign, deleteVitalSign, fetchVitalSignsForPatient,
-    medicationIntakes,
-    loadingMedicationIntakesGlobal,
-    addMedicationIntake, updateMedicationIntake, deleteMedicationIntake,
-    fetchMedicationIntakesForPatient,
-    notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, updateNotificationStatus,
-    signOut,
-  };
-
-  return (
-    <AppContext.Provider value={value}>
-      {children}
-    </AppContext.Provider>
-  );
-};
-
-export const useAppContext = () => {
-  const context = useContext(AppContext);
-  if (context === undefined) {
-    throw new Error('useAppContext must be used within an AppProvider');
-  }
-  return context;
-};
+    return patients.find(p => p.id === i
