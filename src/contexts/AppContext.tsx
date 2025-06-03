@@ -582,7 +582,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     return patients.find(p => p.id === id);
   }, [patients]);
 
-  const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'up
+ const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt' | 'notificacion_stock_expirando_enviada'>): Promise<Medication | undefined> => {
 datedAt' | 'notificacion_stock_expirando_enviada'>): Promise<Medication | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor' || !currentUser.id) {
       toast.error("Solo los doctores pueden añadir medicamentos.");
