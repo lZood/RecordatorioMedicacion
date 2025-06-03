@@ -72,7 +72,7 @@ export const patientService = {
     console.log("patientService.getAll: Fetching patients (RLS will filter)...");
     const { data, error } = await supabase
       .from('patients')
-      .select('*, doctor:profiles(id, name, specialty, email, role)') 
+      .select('*, doctor:profiles!patients_doctor_id_fkey(id, name, specialty, email, role)') 
       .order('name', { ascending: true });
       
     if (error) {
@@ -86,7 +86,7 @@ export const patientService = {
     console.log(`patientService.getById: Fetching patient ID ${id} (RLS will filter)...`);
     const { data, error } = await supabase
       .from('patients')
-      .select('*, doctor:profiles(id, name, specialty, email, role)')
+      .select('*, doctor:profiles!patients_doctor_id_fkey(id, name, specialty, email, role)')
       .eq('id', id)
       .single();
       
