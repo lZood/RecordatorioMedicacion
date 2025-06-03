@@ -1,5 +1,6 @@
 // src/services/medicationPlanService.ts
 import { supabase } from '../lib/supabase';
+import toast from 'react-hot-toast';
 import { MedicationPlan, MedicationPlanCreationData } from '../types';
 
 // Helper para mapear de camelCase (app) a snake_case (DB) para creación
