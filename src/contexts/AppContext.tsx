@@ -15,6 +15,7 @@ import {
   MedicationIntake,
   UserProfile,
   Notification,
+  MedicationPlan,
 } from '../types';
 import {
   MedicationIntakeWithMedication,
@@ -28,6 +29,7 @@ import { appointmentService } from '../services/appointments';
 import { vitalSignService } from '../services/vitalSigns';
 import { profileService } from '../services/profiles';
 import { notificationService } from '../services/notificationService';
+import { medicationPlanService } from '../services/medicationPlanService';
 import toast from 'react-hot-toast';
 import { authService, CreatePatientUserCredentials } from '../services/auth';
 
@@ -135,6 +137,15 @@ interface AppContextType {
     status: Notification['status']
   ) => Promise<Notification | undefined>;
 
+  medicationPlans: MedicationPlan[];
+  loadingMedicationPlans: boolean;
+  addMedicationPlan: (
+    planData: Omit<MedicationPlan, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'medication'>,
+    patientId: string
+  ) => Promise<MedicationPlan | undefined>;
+  fetchMedicationPlansForPatient: (patientId: string) => Promise<MedicationPlan[]>;
+  updateMedicationPlanStatus: (planId: string, isActive: boolean) => Promise<MedicationPlan | undefined>;
+
   signOut: () => Promise<void>;
 }
 
@@ -156,6 +167,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
   const [medicationIntakes, setMedicationIntakes] = useState<MedicationIntakeWithMedication[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [medicationPlans, setMedicationPlans] = useState<MedicationPlan[]>([]);
 
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [loadingMedications, setLoadingMedications] = useState(true);
@@ -163,6 +175,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
   const [loadingVitalSigns, setLoadingVitalSigns] = useState(true);
   const [loadingMedicationIntakesGlobal, setLoadingMedicationIntakesGlobal] = useState(true);
   const [loadingNotifications, setLoadingNotifications] = useState(true);
+  const [loadingMedicationPlans, setLoadingMedicationPlans] = useState(true);
   const [notificationChecksDone, setNotificationChecksDone] = useState(false);
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
@@ -184,28 +197,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
       console.log("AppContext: internalLoadInitialData - No authUser, clearing data and states.");
       setUserProfile(null);
       setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
-      setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
+      setVitalSigns([]); setMedicationIntakes([]); setNotifications([]); setMedicationPlans([]);
       
       setLoadingProfile(false);
       setLoadingData(false);
       setLoadingAppointments(false); setLoadingMedications(false); setLoadingDoctors(false);
       setLoadingVitalSigns(false); setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
+      setLoadingMedicationPlans(false);
       setNotificationChecksDone(false);
       return;
     }
 
     console.log("AppContext: internalLoadInitialData - Loading profile and data for user:", authUser.id);
-    setLoadingProfile(true); // Explicitly set before fetching profile
+    setLoadingProfile(true);
     setLoadingData(true);
 
     const fetchedProfile = await fetchUserProfile(authUser.id);
     setUserProfile(fetchedProfile);
-    setLoadingProfile(false); // Profile fetch attempt is complete
+    setLoadingProfile(false);
 
     if (fetchedProfile && fetchedProfile.role === 'doctor') {
       console.log("AppContext: internalLoadInitialData - User is a doctor, fetching doctor-specific data.");
       setLoadingAppointments(true); setLoadingMedications(true); setLoadingDoctors(true);
       setLoadingVitalSigns(true); setLoadingMedicationIntakesGlobal(true); setLoadingNotifications(true);
+      setLoadingMedicationPlans(true);
       try {
         const [
           resolvedDoctorsData, resolvedNotificationsData, patientsData,
@@ -226,19 +241,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
         setAppointments(appointmentsData || []);
         setVitalSigns(vitalSignsData || []);
         setMedicationIntakes(allMedicationIntakesData || []);
+        setMedicationPlans([]);
       } catch (error) {
         console.error("AppContext: Error loading initial data sets for doctor:", error);
         toast.error("No se pudieron cargar todos los datos de la aplicación.");
       } finally {
         setLoadingAppointments(false); setLoadingMedications(false); setLoadingDoctors(false);
         setLoadingVitalSigns(false); setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
+        setLoadingMedicationPlans(false);
       }
     } else {
       console.log(`AppContext: internalLoadInitialData - User role is '${fetchedProfile?.role}', not 'doctor', or profile fetch failed. Clearing non-profile data.`);
       setPatients([]); setMedications([]); setAppointments([]); setDoctors([]);
-      setVitalSigns([]); setMedicationIntakes([]); setNotifications([]);
+      setVitalSigns([]); setMedicationIntakes([]); setNotifications([]); setMedicationPlans([]);
       setLoadingAppointments(false); setLoadingMedications(false); setLoadingDoctors(false);
       setLoadingVitalSigns(false); setLoadingMedicationIntakesGlobal(false); setLoadingNotifications(false);
+      setLoadingMedicationPlans(false);
     }
     setLoadingData(false);
     setNotificationChecksDone(true);
@@ -258,14 +276,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
         setCurrentUser(prevUser => {
           if (prevUser?.id !== newUser?.id) {
             console.log(`AppContext: User state changed via onAuthStateChange. New: ${newUser?.id}, Prev: ${prevUser?.id}.`);
-            setUserProfile(null); // Reset profile on user change
-            setLoadingProfile(!!newUser); // Start loading profile if there's a new user
+            setUserProfile(null);
+            setLoadingProfile(!!newUser);
             return newUser;
           }
-          return prevUser; // No change in user
+          return prevUser;
         });
         
-        // setLoadingAuth(false) will be handled by the data loading effect or if no user
         if (!session?.user && loadingAuth) {
             console.log("AppContext: No session user from onAuthStateChange, setting loadingAuth to false.");
             setLoadingAuth(false);
@@ -273,7 +290,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
       }
     );
   
-    // Initial session check
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!isMounted) return;
       console.log(`AppContext: Initial getSession() call. User ID: ${session?.user?.id}`);
@@ -289,8 +305,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
         return prevUser;
       });
 
-      // Crucially, set loadingAuth to false after the initial check, regardless of user presence.
-      // This unblocks the ProtectedRoute.
       if (loadingAuth) {
         console.log("AppContext: Initial getSession() complete, setting loadingAuth to false.");
         setLoadingAuth(false);
@@ -311,28 +325,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
       subscription?.unsubscribe();
       console.log("AppContext: Auth Effect cleanup (unmount).");
     };
-  }, []); // Empty dependency array, runs once
-  
+  }, []);
 
   useEffect(() => {
     console.log("AppContext: Data/Profile Load useEffect. loadingAuth:", loadingAuth, "currentUser:", currentUser?.id);
     if (loadingAuth) {
       console.log("AppContext: Data/Profile Load - Auth is still loading, deferring.");
-      return; // Wait for auth to resolve
+      return;
     }
   
     if (currentUser) {
-      // If loadingProfile is true, it means fetchUserProfile (via internalLoadInitialData) will be or is running.
-      // If loadingProfile is false, it means profile fetch is done (or wasn't needed for this user change).
       console.log("AppContext: Data/Profile Load - User exists, auth resolved. Calling internalLoadInitialData.");
       internalLoadInitialData(currentUser);
     } else {
-      // No current user, auth is resolved.
       console.log("AppContext: Data/Profile Load - No user, auth resolved. Clearing data via internalLoadInitialData(null).");
       internalLoadInitialData(null);
     }
   }, [currentUser, loadingAuth, internalLoadInitialData]);
-  
 
   const addNotification = useCallback(async (notificationData: Omit<Notification, 'id' | 'createdAt' | 'updatedAt'>): Promise<Notification | undefined> => {
     const currentAuthUser = currentUser;
@@ -455,7 +464,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     }
   }, [addNotification, updateMedicationFlag]);
 
-
   useEffect(() => {
     const allDataLoadedAndUserReady =
         !loadingAuth && !loadingData && !loadingProfile &&
@@ -574,7 +582,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     return patients.find(p => p.id === id);
   }, [patients]);
 
-  const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'updatedAt' | 'notificacion_stock_expirando_enviada'>): Promise<Medication | undefined> => {
+  const addMedication = useCallback(async (medicationData: Omit<Medication, 'id' | 'doctorId' | 'createdAt' | 'up
+datedAt' | 'notificacion_stock_expirando_enviada'>): Promise<Medication | undefined> => {
     if (!currentUser || userProfile?.role !== 'doctor' || !currentUser.id) {
       toast.error("Solo los doctores pueden añadir medicamentos.");
       throw new Error("User not authorized, not a doctor, or doctor ID missing.");
@@ -918,6 +927,70 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     return undefined;
   }, [currentUser, userProfile]);
 
+  const addMedicationPlan = useCallback(async (
+    planData: Omit<MedicationPlan, 'id' | 'createdAt' | 'updatedAt' | 'patient' | 'medication'>,
+    patientId: string
+  ): Promise<MedicationPlan | undefined> => {
+    if (!currentUser || userProfile?.role !== 'doctor') {
+      toast.error("Solo los doctores pueden añadir planes de medicación.");
+      throw new Error("User not authorized or not a doctor.");
+    }
+
+    try {
+      const newPlan = await medicationPlanService.create(planData, patientId, currentUser.id);
+      if (newPlan) {
+        setMedicationPlans(prev => [...prev, newPlan].sort((a, b) => 
+          new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()
+        ));
+        toast.success('Plan de medicación creado!');
+        return newPlan;
+      }
+    } catch (error: any) {
+      toast.error(`Error al crear plan de medicación: ${error.message || 'Error desconocido'}`);
+      throw error;
+    }
+    return undefined;
+  }, [currentUser, userProfile]);
+
+  const fetchMedicationPlansForPatient = useCallback(async (patientId: string): Promise<MedicationPlan[]> => {
+    if (!currentUser || userProfile?.role !== 'doctor') {
+      toast.error("Autenticación requerida/Rol de doctor necesario");
+      throw new Error("Not authorized.");
+    }
+    try {
+      const plans = await medicationPlanService.getPlansForPatientByDoctor(patientId, currentUser.id);
+      setMedicationPlans(prev => {
+        const filtered = prev.filter(p => p.patient_id !== patientId);
+        return [...filtered, ...plans].sort((a, b) => 
+          new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()
+        );
+      });
+      return plans;
+    } catch (error: any) {
+      toast.error(`Error al obtener planes de medicación: ${error.message || 'Error desconocido'}`);
+      throw error;
+    }
+  }, [currentUser, userProfile]);
+
+  const updateMedicationPlanStatus = useCallback(async (planId: string, isActive: boolean): Promise<MedicationPlan | undefined> => {
+    if (!currentUser || userProfile?.role !== 'doctor') {
+      toast.error("Autenticación requerida/Rol de doctor necesario");
+      throw new Error("Not authorized.");
+    }
+    try {
+      const updatedPlan = await medicationPlanService.updatePlanStatus(planId, isActive);
+      if (updatedPlan) {
+        setMedicationPlans(prev => prev.map(p => p.id === planId ? updatedPlan : p));
+        toast.success(`Plan de medicación ${isActive ? 'activado' : 'desactivado'}!`);
+        return updatedPlan;
+      }
+    } catch (error: any) {
+      toast.error(`Error al actualizar estado del plan: ${error.message || 'Error desconocido'}`);
+      throw error;
+    }
+    return undefined;
+  }, [currentUser, userProfile]);
+
   const signOut = useCallback(async () => {
     toast.loading('Cerrando sesión...', { id: 'signout-toast' });
     try {
@@ -946,6 +1019,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
     addMedicationIntake, updateMedicationIntake, deleteMedicationIntake,
     fetchMedicationIntakesForPatient,
     notifications, loadingNotifications, addNotification, fetchNotificationsForPatient, updateNotificationStatus,
+    medicationPlans, loadingMedicationPlans,
+    addMedicationPlan, fetchMedicationPlansForPatient, updateMedicationPlanStatus,
     signOut,
   };
 
