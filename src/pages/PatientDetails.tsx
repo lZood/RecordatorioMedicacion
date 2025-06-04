@@ -1,217 +1,205 @@
 // src/pages/PatientDetails.tsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom'; // useNavigate importado
+import { useParams, Link } from 'react-router-dom';
 import { useAppContext } from '../contexts/AppContext';
-import { Patient, Medication, VitalSign, MedicationIntake } from '../types';
+import { Patient, Medication, VitalSign, MedicationIntake, MedicationPlan, MedicationPlanCreationData } from '../types';
 import { MedicationIntakeWithMedication } from '../services/medicationIntakes';
 import {
-  ArrowLeft, Edit, Phone, Mail, MapPin, Calendar as CalendarIcon, Pill, Activity, FileText,
-  PlusCircle, CheckSquare, XSquare, Trash2, Clock, ListChecks, HeartPulse, X // Asegúrate de que X esté importado
+  ArrowLeft,
+  Phone,
+  Mail,
+  MapPin,
+  Pill,
+  Activity,
+  PlusCircle,
+  ListChecks,
+  HeartPulse,
+  X,
+  ListPlus, // Para sección de Planes
+  Power,    // Para activar plan
+  PowerOff, // Para desactivar plan
+  // Edit3, // Para un futuro editar plan (no implementado en este paso)
+  // Trash2 // Para un futuro eliminar plan (no implementado en este paso)
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-type MedicationIntakeFormData = Omit<MedicationIntake, 'id' | 'patientId' | 'createdAt' | 'updatedAt'>;
-
 const PatientDetails: React.FC = () => {
   const { id: patientId } = useParams<{ id: string }>();
-  const navigate = useNavigate(); // Hook para navegación
+
   const {
     getPatientById,
     medications = [],
-    addMedicationIntake,
-    updateMedicationIntake,
-    deleteMedicationIntake,
     fetchMedicationIntakesForPatient,
-    fetchVitalSignsForPatient,
+    // Funciones y estados para MedicationPlan
+    addMedicationPlan,
+    fetchMedicationPlansForPatient,
+    medicationPlans = [], 
+    loadingMedicationPlans,
+    updateMedicationPlanStatus,
+    // Estados y funciones existentes
     userProfile,
-    currentUser
+    currentUser,
   } = useAppContext();
 
-  const [patient, setPatient] = useState<Patient | null | undefined>(null); // null: cargando, undefined: no encontrado
+  const [patient, setPatient] = useState<Patient | null | undefined>(null);
   const [patientMedicationIntakes, setPatientMedicationIntakes] = useState<MedicationIntakeWithMedication[]>([]);
-  const [patientVitalSigns, setPatientVitalSigns] = useState<VitalSign[]>([]);
   
-  // Estados de carga locales para las secciones específicas de esta página
-  const [loadingIntakes, setLoadingIntakes] = useState(true); // Iniciar en true
-  const [loadingVitals, setLoadingVitals] = useState(true);   // Iniciar en true
+  const [loadingIntakes, setLoadingIntakes] = useState(true);
 
-  const [showAddIntakeModal, setShowAddIntakeModal] = useState(false);
-  const [intakeFormData, setIntakeFormData] = useState<Partial<MedicationIntakeFormData>>({
-    medicationId: '',
-    date: new Date().toISOString().split('T')[0],
-    time: new Date().toTimeString().slice(0,5),
-    taken: false,
+  const [showCreatePlanModal, setShowCreatePlanModal] = useState(false);
+  const [planMedicationId, setPlanMedicationId] = useState<string>('');
+  const [planDurationDays, setPlanDurationDays] = useState<string>('7');
+  const [planFrequencyHours, setPlanFrequencyHours] = useState<string>('8'); 
+  const [planFirstIntakeTime, setPlanFirstIntakeTime] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
   });
-  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [planInstructions, setPlanInstructions] = useState<string>('');
+  const [planStartDate, setPlanStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [formSubmittingPlan, setFormSubmittingPlan] = useState(false);
+
+  const currentPatientMedicationPlans = useMemo(() => {
+    if (!patientId || !medicationPlans) { 
+      return [];
+    }
+    return medicationPlans.filter(plan => plan.patient_id === patientId)
+      .sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateB - dateA;
+      });
+  }, [medicationPlans, patientId]);
+
 
   useEffect(() => {
-    // Cargar los datos del paciente
     if (patientId) {
-      const currentPatient = getPatientById(patientId);
-      setPatient(currentPatient); // Puede ser null inicialmente si la lista de pacientes aún no ha cargado en AppContext
+      const currentPatientData = getPatientById(patientId);
+      setPatient(currentPatientData);
 
-      // Cargar datos específicos del paciente (intakes y vitals)
-      const loadPatientSpecificData = async () => {
-        if (userProfile?.role === 'doctor' && currentPatient) { // Solo cargar si el paciente existe y el usuario es doctor
-          setLoadingIntakes(true);
-          setLoadingVitals(true);
-          try {
-            const intakes = await fetchMedicationIntakesForPatient(patientId);
-            setPatientMedicationIntakes(intakes.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time)));
-          } catch (error) { 
-            console.error("PatientDetails: Error fetching intakes for patient:", error);
-            toast.error("Could not load medication intakes.");
-          } finally {
-            setLoadingIntakes(false); // Asegurar que se establece a false
-          }
+      if (userProfile?.role === 'doctor' && currentPatientData) {
+        setLoadingIntakes(true);
 
-          try {
-            const vitals = await fetchVitalSignsForPatient(patientId);
-            setPatientVitalSigns(vitals.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time)));
-          } catch (error) { 
-            console.error("PatientDetails: Error fetching vitals for patient:", error);
-            toast.error("Could not load vital signs.");
-          } finally {
-            setLoadingVitals(false); // Asegurar que se establece a false
-          }
-        } else {
-          // Si no es doctor o no hay paciente, limpiar y detener carga
-          setPatientMedicationIntakes([]);
-          setPatientVitalSigns([]);
-          setLoadingIntakes(false);
-          setLoadingVitals(false);
-        }
-      };
-      
-      // Solo llamar a loadPatientSpecificData si tenemos el perfil del usuario y es un doctor
-      if (userProfile) { // Esperar a que userProfile esté disponible
-          loadPatientSpecificData();
-      } else if (currentUser && !userProfile) {
-          // Si hay currentUser pero userProfile aún no (podría estar cargando en AppContext)
-          // podrías esperar o basar la lógica en una carga de perfil completa.
-          // Por ahora, si userProfile no está, no cargamos datos específicos.
-          setLoadingIntakes(false);
-          setLoadingVitals(false);
+        fetchMedicationPlansForPatient(patientId).catch(err => {
+          console.error("Error fetching medication plans on mount:", err);
+          toast.error("No se pudieron cargar los planes de medicación.");
+        });
+
+        fetchMedicationIntakesForPatient(patientId)
+          .then(intakes => setPatientMedicationIntakes(intakes.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time))))
+          .catch(error => {
+            console.error("PatientDetails: Error fetching intakes:", error);
+            toast.error("No se pudieron cargar las tomas de medicación.");
+          })
+          .finally(() => setLoadingIntakes(false));
+
+      } else {
+        setPatientMedicationIntakes([]);
+        setLoadingIntakes(false);
       }
-
     } else {
-      setPatient(undefined); // No hay patientId
+      setPatient(undefined);
       setLoadingIntakes(false);
-      setLoadingVitals(false);
     }
-  // Dependencias: patientId, getPatientById (que depende de `patients` en AppContext),
-  // userProfile (para la verificación de rol), y las funciones de fetch.
-  // Si `patients` en AppContext cambia, getPatientById podría devolver un nuevo objeto `currentPatient`.
-  }, [patientId, getPatientById, fetchMedicationIntakesForPatient, fetchVitalSignsForPatient, userProfile, currentUser]);
+  }, [patientId, getPatientById, userProfile, fetchMedicationIntakesForPatient, fetchMedicationPlansForPatient]);
 
 
-  const handleIntakeFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target;
-    if (type === 'checkbox') {
-        setIntakeFormData(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
-    } else {
-        setIntakeFormData(prev => ({ ...prev, [name]: value }));
-    }
+  const resetPlanForm = () => {
+    setPlanMedicationId('');
+    setPlanDurationDays('7');
+    setPlanFrequencyHours('8');
+    const now = new Date();
+    setPlanFirstIntakeTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
+    setPlanInstructions('');
+    setPlanStartDate(new Date().toISOString().split('T')[0]);
   };
 
-  const resetIntakeForm = () => {
-    setIntakeFormData({
-        medicationId: '',
-        date: new Date().toISOString().split('T')[0],
-        time: new Date().toTimeString().slice(0,5),
-        taken: false,
-    });
-  };
-
-  const handleAddIntakeSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleCreatePlanSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!currentUser || userProfile?.role !== 'doctor') {
-        toast.error("Only doctors can add medication intakes."); return;
-    }
-    if (!patientId || !intakeFormData.medicationId || !intakeFormData.date || !intakeFormData.time) {
-      toast.error("Medication, Date, and Time are required for medication plan.");
+    if (!currentUser || userProfile?.role !== 'doctor' || !patient) {
+      toast.error("Acción no autorizada o paciente no cargado.");
       return;
     }
-    setFormSubmitting(true);
-    try {
-      const newIntakeData: Omit<MedicationIntake, 'id' | 'createdAt' | 'updatedAt'> = {
-        patientId: patientId,
-        medicationId: intakeFormData.medicationId!, // ! asume que medicationId no será vacío por la validación
-        date: intakeFormData.date!,
-        time: intakeFormData.time!,
-        taken: intakeFormData.taken || false,
-      };
-      const addedIntake = await addMedicationIntake(newIntakeData);
-      if (addedIntake) {
-        setPatientMedicationIntakes(prev => [addedIntake, ...prev].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time)));
-        setShowAddIntakeModal(false);
-        resetIntakeForm();
-      }
-    } catch (error) {
-      console.error("PatientDetails: Error adding medication intake:", error);
-    } finally {
-      setFormSubmitting(false);
+    if (!planMedicationId || !planDurationDays || !planFrequencyHours || !planFirstIntakeTime || !planStartDate) {
+      toast.error("Medicamento, fecha de inicio, duración, frecuencia y hora de inicio son requeridos para el plan.");
+      return;
     }
-  };
+    const duration = parseInt(planDurationDays, 10);
+    const frequency = parseInt(planFrequencyHours, 10);
 
-  const toggleIntakeTakenStatus = async (intake: MedicationIntakeWithMedication) => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-        toast.error("Only doctors can update medication intakes."); return;
+    if (isNaN(duration) || duration <= 0) {
+      toast.error("La duración debe ser un número positivo."); return;
     }
+    if (isNaN(frequency) || frequency <= 0 || (frequency < 24 && 24 % frequency !== 0) || frequency > 168 ) {
+        if (frequency <=0) {
+            toast.error("La frecuencia debe ser un número positivo."); return;
+        }
+        if (frequency < 24 && 24 % frequency !== 0) {
+             toast.error("La frecuencia (si es menor a 24h) debe ser un divisor de 24 (ej. 4, 6, 8, 12)."); return;
+        }
+        if (frequency > 168) { 
+            toast.error("La frecuencia es demasiado alta (máx. 1 toma por hora durante 7 días)."); return;
+        }
+    }
+     if (!/^\d{2}:\d{2}(:\d{2})?$/.test(planFirstIntakeTime)) {
+      toast.error("La hora de inicio debe estar en formato HH:MM."); return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(planStartDate)) {
+      toast.error("La fecha de inicio debe estar en formato yyyy-MM-dd."); return;
+    }
+
+
+    setFormSubmittingPlan(true);
+    const planData: MedicationPlanCreationData = {
+      patient_id: patient.id,
+      medication_id: planMedicationId,
+      start_date: planStartDate,
+      duration_days: duration,
+      frequency_hours: frequency,
+      first_intake_time: planFirstIntakeTime.length === 5 ? `${planFirstIntakeTime}:00` : planFirstIntakeTime, 
+      instructions: planInstructions.trim() || undefined,
+    };
+
     try {
-      const updatedIntake = await updateMedicationIntake(intake.id, { taken: !intake.taken });
-      if (updatedIntake) {
-        setPatientMedicationIntakes(prev =>
-          prev.map(i => (i.id === intake.id ? updatedIntake : i))
-        );
-        toast.success(`Medication intake marked as ${updatedIntake.taken ? 'taken' : 'not taken'}.`);
+      const newPlan = await addMedicationPlan(planData, patient.id);
+      if (newPlan) {
+        setShowCreatePlanModal(false);
+        resetPlanForm();
+        if (patientId) {
+          toast("Actualizando lista de planes y tomas..."); // <--- CORRECCIÓN AQUÍ
+          await fetchMedicationPlansForPatient(patientId);
+          await fetchMedicationIntakesForPatient(patientId)
+            .then(intakes => setPatientMedicationIntakes(intakes.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.time.localeCompare(a.time))))
+            .finally(() => setLoadingIntakes(false)); 
+        }
       }
     } catch (error) {
-      console.error("PatientDetails: Error updating intake status:", error);
+      console.error("PatientDetails: Error creando plan de medicación:", error);
+      // El toast de error ya se maneja en AppContext o en el servicio si se relanza
+    } finally {
+      setFormSubmittingPlan(false);
     }
   };
   
-  const handleDeleteIntake = async (intakeId: string) => {
-    if (!currentUser || userProfile?.role !== 'doctor') {
-        toast.error("Only doctors can delete medication intakes."); return;
-    }
-    if (window.confirm("Are you sure you want to delete this medication intake record?")) {
-        try {
-            await deleteMedicationIntake(intakeId);
-            setPatientMedicationIntakes(prev => prev.filter(i => i.id !== intakeId));
-        } catch (error) {
-            console.error("PatientDetails: Error deleting medication intake:", error);
-        }
+  const handleTogglePlanStatus = async (plan: MedicationPlan) => {
+    if (!currentUser || userProfile?.role !== 'doctor' || !patientId) return;
+    const newStatus = !plan.is_active;
+    if (window.confirm(`¿Está seguro de que desea ${newStatus ? 'ACTIVAR' : 'DESACTIVAR'} este plan de medicación? ${!newStatus ? 'Las tomas ya generadas no se eliminarán.' : '' }`)) {
+      try {
+        await updateMedicationPlanStatus(plan.id, newStatus);
+        await fetchMedicationPlansForPatient(patientId); 
+      } catch (error) {
+        toast.error("Error al actualizar el estado del plan.");
+      }
     }
   };
+  
 
-  const adherenceRate = useMemo(() => {
-    if (!patientMedicationIntakes || patientMedicationIntakes.length === 0) return 0;
-    const takenCount = patientMedicationIntakes.filter(intake => intake.taken).length;
-    return Math.round((takenCount / patientMedicationIntakes.length) * 100);
-  }, [patientMedicationIntakes]);
-
-
-  if (patient === null && !patientId) { // Si no hay patientId en la URL, no hay nada que cargar
-    return <Navigate to="/patients" replace />; // O a una página de error
-  }
-  if (patient === null && patientId) { // patientId existe, pero `patient` aún es null (cargando desde AppContext)
-    return <div className="flex justify-center items-center h-screen"><div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent border-solid rounded-full animate-spin"></div><p className="ml-3">Loading patient data...</p></div>;
-  }
-  if (patient === undefined) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-gray-500 text-lg">Patient not found or you do not have access.</p>
-        <Link to="/patients" className="text-indigo-600 mt-4 inline-block hover:underline">
-          Back to Patients
-        </Link>
-      </div>
-    );
-  }
+  if (patient === null && patientId) { return <div className="flex justify-center items-center h-screen">Cargando detalles del paciente...</div>; }
+  if (patient === undefined) { return <div className="text-center py-10">Paciente no encontrado o no tienes acceso. <Link to="/patients" className="text-indigo-600 hover:underline">Volver a Pacientes</Link></div>; }
 
   return (
     <div className="space-y-8 p-4 md:p-6 max-w-5xl mx-auto">
-      {/* Patient Info Card */}
+      {/* Tarjeta de Información del Paciente */}
       <div className="bg-white rounded-xl shadow-lg p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
             <div>
@@ -219,154 +207,164 @@ const PatientDetails: React.FC = () => {
                 <div className="flex items-center text-gray-500 text-sm mt-1">
                     <Mail size={16} className="mr-2"/> {patient.email}
                     <span className="mx-2">|</span>
-                    <Phone size={16} className="mr-2"/> {patient.phone}
+                    <Phone size={16} className="mr-2"/> {patient.phone || 'N/A'}
                 </div>
                 <div className="flex items-center text-gray-500 text-sm mt-1">
-                    <MapPin size={16} className="mr-2"/> {patient.address}
+                    <MapPin size={16} className="mr-2"/> {patient.address || 'N/A'}
                 </div>
             </div>
-            <Link to="/patients" className="flex items-center text-indigo-600 hover:text-indigo-800 text-sm font-medium self-start sm:self-center">
-                <ArrowLeft size={18} className="mr-1" /> Back to Patients
+            <Link to="/patients" className="flex items-center text-indigo-600 hover:text-indigo-800 text-sm font-medium self-start sm:self-center whitespace-nowrap">
+                <ArrowLeft size={18} className="mr-1" /> Volver a Pacientes
             </Link>
         </div>
       </div>
 
-      {/* Sección de Estadísticas Rápidas */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-4 rounded-lg shadow">
-                <h3 className="text-sm font-medium text-gray-500">Medication Adherence</h3>
-                <p className={`text-2xl font-bold ${adherenceRate >= 75 ? 'text-green-600' : adherenceRate >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
-                    {adherenceRate}%
-                </p>
-            </div>
-            <div className="bg-white p-4 rounded-lg shadow">
-                <h3 className="text-sm font-medium text-gray-500">Scheduled Intakes</h3>
-                <p className="text-2xl font-bold text-blue-600">{patientMedicationIntakes.length}</p>
-            </div>
-            <div className="bg-white p-4 rounded-lg shadow">
-                <h3 className="text-sm font-medium text-gray-500">Vital Signs Logged</h3>
-                <p className="text-2xl font-bold text-purple-600">{patientVitalSigns.length}</p>
-            </div>
-        </div>
-
-      {/* Sección Plan de Medicación y Cumplimiento */}
+      {/* SECCIÓN: Planes de Medicación */}
       <div className="bg-white rounded-xl shadow-lg p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-700 flex items-center"><ListChecks size={24} className="mr-2 text-indigo-600"/>Medication Plan & Compliance</h2>
+        <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-3">
+          <h2 className="text-xl font-semibold text-gray-700 flex items-center">
+            <ListPlus size={24} className="mr-3 text-green-600"/>Planes de Medicación
+          </h2>
           <button
-            onClick={() => { resetIntakeForm(); setShowAddIntakeModal(true); }}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm"
+            onClick={() => { resetPlanForm(); setShowCreatePlanModal(true); }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium shadow-md hover:shadow-lg transition-all duration-200"
             disabled={!patientId || userProfile?.role !== 'doctor'}
           >
-            <PlusCircle size={18} /> Add Medication Intake
+            <PlusCircle size={18} /> Crear Nuevo Plan
           </button>
         </div>
-        {loadingIntakes ? (<div className="text-center py-4"><p className="text-gray-500">Loading medication intakes...</p></div>) :
-         patientMedicationIntakes.length > 0 ? (
-          <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
-            {patientMedicationIntakes.map(intake => (
-              <div key={intake.id} className={`p-3 rounded-md border flex items-center justify-between ${intake.taken ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
-                <div>
-                  <p className="font-semibold text-gray-800">{intake.medication?.name || 'Unknown Medication'}</p>
-                  <p className="text-xs text-gray-500">
-                    {new Date(intake.date + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES', {month:'short', day:'numeric', year:'numeric'})} at {intake.time}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => toggleIntakeTakenStatus(intake)}
-                          title={intake.taken ? "Mark as Not Taken" : "Mark as Taken"}
-                          className={`p-1.5 rounded-full transition-colors ${intake.taken ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-gray-300 hover:bg-gray-400 text-gray-700'}`}>
-                    {intake.taken ? <CheckSquare size={16}/> : <XSquare size={16}/>}
-                  </button>
-                   <button onClick={() => handleDeleteIntake(intake.id)} className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full transition-colors" title="Delete Intake">
-                        <Trash2 size={16}/>
-                    </button>
+        {loadingMedicationPlans ? (
+            <div className="text-center py-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500 mx-auto"></div><p className="mt-2 text-sm text-gray-500">Cargando planes...</p></div>
+        ) : currentPatientMedicationPlans.length > 0 ? (
+          <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+            {currentPatientMedicationPlans.map(plan => (
+              <div key={plan.id} className={`p-4 rounded-lg border-l-4 ${plan.is_active ? 'bg-green-50 border-green-500' : 'bg-gray-100 border-gray-400 opacity-80'}`}>
+                <div className="flex flex-col sm:flex-row justify-between items-start gap-2">
+                    <div className="flex-1">
+                        <p className="font-semibold text-lg text-gray-800">{plan.medication?.name || `ID Med: ${plan.medication_id}`}</p>
+                        <p className="text-sm text-gray-600">
+                            Cada {plan.frequency_hours} horas por {plan.duration_days} días.
+                        </p>
+                        <p className="text-sm text-gray-600">
+                            Inicia: {new Date(plan.start_date + 'T00:00:00Z').toLocaleDateString(navigator.language || 'es-ES', {month:'long', day:'numeric', year:'numeric'})}
+                            {' '}a las {plan.first_intake_time.slice(0,5)}
+                        </p>
+                        {plan.instructions && <p className="text-xs text-gray-500 mt-1 italic">"{plan.instructions}"</p>}
+                    </div>
+                    <div className="flex-shrink-0 flex flex-col items-end gap-2 sm:ml-4">
+                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${plan.is_active ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-700'}`}>
+                            {plan.is_active ? 'Activo' : 'Inactivo'}
+                        </span>
+                        <button
+                            onClick={() => handleTogglePlanStatus(plan)}
+                            title={plan.is_active ? "Desactivar Plan" : "Activar Plan"}
+                            className={`p-2 rounded-full transition-colors text-white ${plan.is_active ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}
+                        >
+                            {plan.is_active ? <PowerOff size={18}/> : <Power size={18}/>}
+                        </button>
+                    </div>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-gray-500 py-4">No medication intakes scheduled or recorded for this patient.</p>
+          <p className="text-gray-500 py-6 text-center">No hay planes de medicación creados para este paciente.</p>
         )}
       </div>
 
-      {/* Modal para Agregar Toma de Medicamento */}
-      {showAddIntakeModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+      {/* Sección Tomas de Medicación Programadas (Existente) */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold text-gray-700 flex items-center"><ListChecks size={24} className="mr-3 text-indigo-600"/>Tomas de Medicación Programadas</h2>
+        </div>
+        {loadingIntakes ? (<div className="text-center py-4"><p className="text-gray-500">Cargando tomas...</p></div>) :
+         patientMedicationIntakes.length > 0 ? (
+          <div className="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+            {patientMedicationIntakes.map(intake => (
+              <div key={intake.id} className={`p-3 rounded-md border flex items-center justify-between ${intake.taken ? 'bg-blue-50 border-blue-300' : 'bg-red-50 border-red-300'}`}>
+                <div>
+                  <p className="font-semibold text-gray-800">{intake.medication?.name || 'Medicamento Desconocido'}</p>
+                  <p className="text-xs text-gray-500">
+                    {new Date(intake.date + 'T00:00:00Z').toLocaleDateString(navigator.language || 'es-ES', {month:'short', day:'numeric', year:'numeric'})} a las {intake.time.slice(0,5)}
+                    {intake.medication_plan_id && <span className="ml-2 text-indigo-500 text-xs">(Planificado)</span>}
+                  </p>
+                </div>
+                <div className={`px-2 py-0.5 rounded-full text-xs font-medium ${intake.taken ? 'bg-green-200 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                    {intake.taken ? 'Tomado' : 'Pendiente'}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-500 py-4">No hay tomas de medicación programadas para este paciente.</p>
+        )}
+      </div>
+
+      {/* MODAL PARA CREAR PLAN DE MEDICACIÓN */}
+      {showCreatePlanModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg my-8 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold">Add Medication Intake</h2>
-                <button onClick={() => setShowAddIntakeModal(false)} className="text-gray-400 hover:text-gray-600"><X size={24}/></button> {/* Ícono X importado */}
+                <h2 className="text-xl font-semibold text-gray-800">Crear Plan de Medicación para {patient?.name}</h2>
+                <button onClick={() => {setShowCreatePlanModal(false); resetPlanForm();}} className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100">
+                    <X size={24}/>
+                </button>
             </div>
-            <form onSubmit={handleAddIntakeSubmit} className="space-y-4">
+            <form onSubmit={handleCreatePlanSubmit} className="space-y-5">
               <div>
-                <label htmlFor="medicationId" className="block text-sm font-medium text-gray-700 mb-1">Medication</label>
-                <select name="medicationId" id="medicationId" value={intakeFormData.medicationId} onChange={handleIntakeFormChange} required
-                        className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm py-2 px-3">
-                  <option value="" disabled>Select a medication</option>
-                  {medications.map(med => <option key={med.id} value={med.id}>{med.name}</option>)}
+                <label htmlFor="planMedicationId" className="block text-sm font-medium text-gray-700 mb-1.5">Medicamento</label>
+                <select name="planMedicationId" id="planMedicationId" value={planMedicationId}
+                        onChange={(e) => setPlanMedicationId(e.target.value)} required
+                        className="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm py-2.5 px-3">
+                  <option value="" disabled>Seleccione un medicamento</option>
+                  {medications.map(med => <option key={med.id} value={med.id}>{med.name} ({med.activeIngredient})</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="planStartDate" className="block text-sm font-medium text-gray-700 mb-1.5">Fecha de Inicio del Plan</label>
+                <input type="date" name="planStartDate" id="planStartDate" value={planStartDate}
+                       onChange={(e) => setPlanStartDate(e.target.value)} required
+                       className="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm py-2.5 px-3"/>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-5">
                 <div>
-                    <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                    <input type="date" name="date" id="date" value={intakeFormData.date} onChange={handleIntakeFormChange} required
-                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm py-2 px-3"/>
+                    <label htmlFor="planDurationDays" className="block text-sm font-medium text-gray-700 mb-1.5">Duración (días)</label>
+                    <input type="number" name="planDurationDays" id="planDurationDays" value={planDurationDays}
+                           onChange={(e) => setPlanDurationDays(e.target.value)} required min="1"
+                           className="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm py-2.5 px-3"/>
                 </div>
                 <div>
-                    <label htmlFor="time" className="block text-sm font-medium text-gray-700 mb-1">Time</label>
-                    <input type="time" name="time" id="time" value={intakeFormData.time} onChange={handleIntakeFormChange} required
-                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm py-2 px-3"/>
+                    <label htmlFor="planFrequencyHours" className="block text-sm font-medium text-gray-700 mb-1.5">Frecuencia (cada X horas)</label>
+                    <select name="planFrequencyHours" id="planFrequencyHours" value={planFrequencyHours}
+                            onChange={(e) => setPlanFrequencyHours(e.target.value)} required
+                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm py-2.5 px-3">
+                        {[1, 2, 3, 4, 6, 8, 12, 24, 48].map(h => <option key={h} value={h.toString()}>{h} hora{h > 1 ? 's' : ''}</option>)}
+                    </select>
                 </div>
               </div>
-              <div className="flex items-center">
-                <input type="checkbox" name="taken" id="taken" checked={intakeFormData.taken || false} onChange={handleIntakeFormChange}
-                       className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"/>
-                <label htmlFor="taken" className="ml-2 block text-sm text-gray-900">Mark as taken</label>
+              <div>
+                <label htmlFor="planFirstIntakeTime" className="block text-sm font-medium text-gray-700 mb-1.5">Hora de la Primera Toma del Día Inicial</label>
+                <input type="time" name="planFirstIntakeTime" id="planFirstIntakeTime" value={planFirstIntakeTime}
+                       onChange={(e) => setPlanFirstIntakeTime(e.target.value)} required
+                       className="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm py-2.5 px-3"/>
               </div>
-              <div className="flex justify-end gap-3 pt-4">
-                <button type="button" onClick={() => setShowAddIntakeModal(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50" disabled={formSubmitting}>Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-300" disabled={formSubmitting}>
-                  {formSubmitting ? "Saving..." : "Add Intake"}
+              <div>
+                <label htmlFor="planInstructions" className="block text-sm font-medium text-gray-700 mb-1.5">Instrucciones (Opcional)</label>
+                <textarea name="planInstructions" id="planInstructions" value={planInstructions}
+                          onChange={(e) => setPlanInstructions(e.target.value)} rows={3}
+                          className="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm py-2 px-3"/>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-5">
+                <button type="button" onClick={() => {setShowCreatePlanModal(false); resetPlanForm();}} className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors" disabled={formSubmittingPlan}>Cancelar</button>
+                <button type="submit" className="px-5 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:bg-green-300 transition-colors" disabled={formSubmittingPlan}>
+                  {formSubmittingPlan ? "Guardando Plan..." : "Crear Plan"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      {/* Sección Historial de Signos Vitales */}
-      <div className="bg-white rounded-xl shadow-lg p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-700 flex items-center"><HeartPulse size={24} className="mr-2 text-purple-600"/>Vital Signs History</h2>
-          <Link to="/vitals" state={{ preselectedPatientId: patientId }}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm"
-                aria-disabled={!patientId || userProfile?.role !== 'doctor'}
-                onClick={(e) => { if (!patientId || userProfile?.role !== 'doctor') e.preventDefault(); }} // Prevenir navegación si está deshabilitado
-            >
-            <PlusCircle size={18} /> Record New Vital Sign
-          </Link>
-        </div>
-        {loadingVitals ? (<div className="text-center py-4"><p className="text-gray-500">Loading vital signs...</p></div>) :
-         patientVitalSigns.length > 0 ? (
-          <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
-            {patientVitalSigns.map(vs => (
-              <div key={vs.id} className="p-3 rounded-md border border-gray-200 bg-gray-50">
-                <div className="flex justify-between items-center">
-                    <div>
-                        <span className="font-semibold text-gray-700">{vs.type}:</span> {vs.value} {vs.unit}
-                    </div>
-                    <span className="text-xs text-gray-500">
-                        {new Date(vs.date + 'T00:00:00').toLocaleDateString(navigator.language || 'es-ES', {month:'short', day:'numeric', year:'numeric'})}, {vs.time}
-                    </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-gray-500 py-4">No vital signs recorded for this patient.</p>
-        )}
-      </div>
     </div>
   );
 };
