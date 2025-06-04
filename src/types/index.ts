@@ -9,6 +9,7 @@ export interface Patient {
   createdAt: string; // ISO Date string
   doctorId?: string; // ID del doctor que creó/asignó este paciente
   user_id?: string | null; // Opcional: El auth.uid del paciente si se ha registrado y vinculado
+  profile_id?: string | null; // ID del perfil asociado al paciente
 }
 
 export interface Medication {

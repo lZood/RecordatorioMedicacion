@@ -12,6 +12,7 @@ const mapPatientToDb = (patientData: Partial<Omit<Patient, 'id' | 'createdAt'>>)
   if (patientData.email !== undefined) dbData.email = patientData.email;
   if (patientData.doctorId !== undefined) dbData.doctor_id = patientData.doctorId;
   if ((patientData as any).user_id !== undefined) dbData.user_id = (patientData as any).user_id; 
+  if ((patientData as any).profile_id !== undefined) dbData.profile_id = (patientData as any).profile_id;
   return dbData;
 };
 
@@ -27,6 +28,7 @@ const mapDbToPatient = (dbRecord: any): Patient | null => {
     createdAt: dbRecord.created_at,
     doctorId: dbRecord.doctor_id,
     user_id: dbRecord.user_id,
+    profile_id: dbRecord.profile_id,
   };
   return patient;
 };
